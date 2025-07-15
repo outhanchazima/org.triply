@@ -1,0 +1,19 @@
+{
+  "servers": {
+    "nx-mcp": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "nx-mcp@0.3.0",
+        "${input:workspacePath}"
+      ]
+    }
+  },
+  "inputs": [
+    {
+      "id": "workspacePath",
+      "type": "promptString",
+      "description": "Nx Workspace Path (Optional)"
+    }
+  ]
+}
