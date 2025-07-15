@@ -32,7 +32,41 @@ npx nx show project triply.api
 
 These targets are either [inferred automatically](https://nx.dev/concepts/inferred-tasks?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) or defined in the `project.json` or `package.json` files.
 
-[More about running tasks in the docs &raquo;](https://nx.dev/features/run-tasks?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+[More about running tasks in the docs »](https://nx.dev/features/run-tasks?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+
+## NestJS Application Overview
+
+This workspace includes a NestJS application `triply.api` generated with Nx. The application follows best practices as per Nx and NestJS conventions.
+
+Application structure:
+
+```plaintext
+apps/triply.api
+├── src
+│   ├── app
+│   │   ├── controllers
+│   │   ├── services
+│   │   ├── app.module.ts
+│   │   └── main.ts
+│   └── assets
+```
+
+Generate NestJS resources using Nx generators:
+
+- Module:
+  ```bash
+  npx nx g @nrwl/nest:module <module-name> --project=triply.api
+  ```
+- Controller:
+  ```bash
+  npx nx g @nrwl/nest:controller <controller-name> --project=triply.api --path=app
+  ```
+- Service:
+  ```bash
+  npx nx g @nrwl/nest:service <service-name> --project=triply.api --path=app
+  ```
+
+Refer to the [Nx Nest introduction documentation](https://nx.dev/technologies/node/nest/introduction) for more details.
 
 ## Add new projects
 
@@ -57,6 +91,40 @@ You can use `npx nx list` to get a list of installed plugins. Then, run `npx nx 
 [Learn more about Nx plugins &raquo;](https://nx.dev/concepts/nx-plugins?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) | [Browse the plugin registry &raquo;](https://nx.dev/plugin-registry?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
 
 [Learn more about Nx on CI](https://nx.dev/ci/intro/ci-with-nx#ready-get-started-with-your-provider?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+
+## Shared Libraries and Modules
+
+Shared code (e.g., modules, services, utilities) lives under `libs/` and can be consumed by any microservice in this workspace.
+
+Workspace structure:
+
+```plaintext
+apps/
+├── triply.api
+│   └── src
+│       ├── app/
+│       │   ├── controllers/
+│       │   ├── services/
+│       │   ├── app.module.ts
+│       │   └── main.ts
+│       └── assets/
+├── <other-service>
+│   └── src
+└── ...
+
+libs/
+├── shared
+│   ├── modules/
+│   ├── services/
+│   └── utils/
+└── ...
+```
+
+Generate a new shared library:
+
+```bash
+npx nx g @nrwl/nest:library <lib-name> --directory=shared --importPath=@org-triply/shared/<lib-name>
+```
 
 ## Contributing
 
