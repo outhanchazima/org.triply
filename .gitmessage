@@ -1,0 +1,51 @@
+# <type>(<scope>): <subject>
+#
+# <body>
+#
+# <footer>
+#
+# Types:
+# - feat: A new feature
+# - fix: A bug fix
+# - docs: Documentation only changes
+# - style: Changes that do not affect the meaning of the code (white-space, formatting, etc)
+# - refactor: A code change that neither fixes a bug nor adds a feature
+# - perf: A code change that improves performance
+# - test: Adding missing tests or correcting existing tests
+# - build: Changes that affect the build system or external dependencies
+# - ci: Changes to our CI configuration files and scripts
+# - chore: Other changes that don't modify src or test files
+# - revert: Reverts a previous commit
+#
+# Scope:
+# The scope should be the name of the npm package affected (as perceived by the person reading the changelog).
+# For example, `api`, `database`, `ui`, etc.
+#
+# Subject:
+# The subject contains a succinct description of the change.
+# - Use the imperative, present tense: "change" not "changed" nor "changes"
+# - Don't capitalize the first letter
+# - No dot (.) at the end
+#
+# Body:
+# Just as in the subject, use the imperative, present tense.
+# The body should include the motivation for the change and contrast this with previous behavior.
+#
+# Footer:
+# The footer should contain any information about Breaking Changes and is also the place to reference GitHub issues that this commit closes.
+#
+# Breaking Change:
+# A BREAKING CHANGE footer should start with `BREAKING CHANGE:` followed by a space or two newlines.
+# The rest of the commit message is then the description of the change, justification and migration notes.
+#
+# Example:
+#
+# feat(api): add user authentication endpoint
+#
+# Implement JWT-based authentication for the API.
+#
+# Closes #123
+#
+# BREAKING CHANGE: The user authentication endpoint now requires a valid JWT token.
+#
+# See https://www.conventionalcommits.org for more details.

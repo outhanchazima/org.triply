@@ -1,3 +1,19 @@
 {
-    "nxConsole.generateAiAgentRules": true
+  "nxConsole.generateAiAgentRules": true,
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+  "typescript.preferences.importModuleSpecifier": "relative",
+  "npm.packageManager": "npm",
+  "jest.jestCommandLine": "npx nx test",
+  "markdownlint.config": {
+    "MD013": false,
+    "MD024": false,
+    "MD025": false,
+    "MD031": false,
+    "MD032": false,
+    "MD040": false,
+    "MD041": false
+  }
 }

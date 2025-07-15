@@ -1,0 +1,5 @@
+{
+  "*.{js,jsx,ts,tsx}": ["npx nx affected:lint --fix", "npx nx format:write"],
+  "*.{json,md,yml,yaml}": ["npx nx format:write"],
+  "*.{js,jsx,ts,tsx,json,md,yml,yaml}": ["git add"]
+}
