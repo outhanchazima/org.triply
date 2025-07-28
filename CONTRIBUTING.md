@@ -21,7 +21,7 @@ By participating in this project, you are expected to uphold our code of conduct
 
 ### Prerequisites
 
-- Node.js (version 18.16.0 or higher)
+- Node.js (version 22.16.0 or higher)
 - npm (latest version)
 - Git
 
