@@ -36,6 +36,8 @@
   },
   "dependencies": {
     "tslib": "^2.3.0",
-    "@nestjs/common": "^11.0.0"
+    "@nestjs/common": "^11.0.0",
+    "@infisical/sdk": "^4.0.2",
+    "@nestjs/config": "^4.0.2"
   }
 }
