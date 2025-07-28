@@ -10,9 +10,6 @@
       "path": "./apps/triply.api"
     },
     {
-      "path": "./libs"
-    },
-    {
       "path": "./libs/shared"
     },
     {
