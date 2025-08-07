@@ -3,6 +3,7 @@ export * from './lib/amadeus.module';
 
 // Service exports
 export * from './lib/services/amadeus-client.service';
+export { default as AmadeusClient } from './lib/services/amadeus-client.service';
 
 // Client exports - Airlines
 export * from './lib/client/airline/destinations';
