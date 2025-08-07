@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { InfisicalConfigService } from './services/infisical-config.service';
+import { RequestService } from './services/request.service';
 
 @Module({
   imports: [ConfigModule],
   controllers: [],
-  providers: [InfisicalConfigService],
-  exports: [InfisicalConfigService],
+  providers: [RequestService],
+  exports: [RequestService],
 })
 export class SharedModule {}
