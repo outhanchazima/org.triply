@@ -1,0 +1,52 @@
+{
+  "name": "@org.triply/database",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "@org.triply/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "nx": {
+    "name": "database",
+    "targets": {
+      "build": {
+        "executor": "@nx/js:tsc",
+        "outputs": [
+          "{options.outputPath}"
+        ],
+        "options": {
+          "outputPath": "dist/libs/database",
+          "tsConfig": "libs/database/tsconfig.lib.json",
+          "packageJson": "libs/database/package.json",
+          "main": "libs/database/src/index.ts",
+          "assets": [
+            "libs/database/*.md"
+          ]
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "tslib": "^2.3.0",
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/typeorm": "^11.0.0",
+    "@nestjs/mongoose": "^11.0.3",
+    "@nestjs/config": "^4.0.2",
+    "express": "5.1.0",
+    "rxjs": "^7.8.0",
+    "@nestjs/core": "^11.0.0",
+    "typeorm": "^0.3.25",
+    "mongoose": "^8.16.3",
+    "ioredis": "5.7.0",
+    "uuid": "^11.1.0"
+  }
+}
