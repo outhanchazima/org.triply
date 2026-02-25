@@ -1,39 +1,39 @@
-import {
-  Controller,
-  Get,
-  HttpException,
-  HttpStatus,
-  Logger,
-  Query,
-} from '@nestjs/common';
+import { Controller, Get, Logger, Query } from '@nestjs/common';
+import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { AppService } from './app.service';
+import { SearchFlightsDto } from './dto/search-flights.dto';
 
+@ApiTags('flights')
 @Controller()
 export class AppController {
-  private logger = new Logger(AppController.name);
+  private readonly logger = new Logger(AppController.name);
 
   constructor(private readonly appService: AppService) {}
 
   @Get()
+  @ApiOperation({ summary: 'API root' })
   getData() {
     return this.appService.getData();
   }
 
   @Get('flights/search')
-  async searchFlights(
-    @Query('origin') origin: string,
-    @Query('destination') destination: string,
-    @Query('date') date: string,
-    @Query('adults') adults = '1'
-  ) {
-    this.logger.log(`Flight Search Inititated for: FROM: ${origin} TO: ${destination} DATE: ${date} ADULTS: ${adults}`)
-    if (!origin || !destination || !date) {
-      throw new HttpException(
-        'Missing required parameters: origin, destination, date',
-        HttpStatus.BAD_REQUEST
-      );
-    }
+  @ApiOperation({ summary: 'Search flight offers' })
+  @ApiResponse({
+    status: 200,
+    description: 'Flight offers returned successfully',
+  })
+  @ApiResponse({ status: 400, description: 'Invalid search parameters' })
+  @ApiResponse({ status: 429, description: 'Rate limit exceeded' })
+  async searchFlights(@Query() query: SearchFlightsDto) {
+    this.logger.log(
+      `Flight search: ${query.origin} → ${query.destination} on ${query.date} (${query.adults} adults)`,
+    );
 
-    return await this.appService.searchFlights(origin, destination, date, adults);
+    return this.appService.searchFlights(
+      query.origin,
+      query.destination,
+      query.date,
+      query.adults,
+    );
   }
 }
