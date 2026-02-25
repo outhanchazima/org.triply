@@ -96,7 +96,7 @@ org.triply/
 
 ### Background Processing
 
-- **[Bull](https://github.com/OptimalBits/bull)** - Premium Queue package for handling distributed jobs
+- **[BullMQ](https://github.com/taskforcesh/bullmq)** - Modern queue package for handling distributed jobs
 - **[Cache Manager](https://github.com/node-cache-manager/node-cache-manager)** - Multi-store caching solution
 
 ### Development Tools

@@ -6,7 +6,7 @@ import {
   DatabaseConnection,
   ConnectionMetrics,
 } from '../interfaces/database.interface';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
 
 interface DistributedTransaction {
   id: string;
@@ -51,7 +51,7 @@ export class ConnectionManagerService {
     } catch (error) {
       this.logger.error(
         `Failed to register PostgreSQL connection '${name}'`,
-        error
+        error,
       );
       throw error;
     }
@@ -81,7 +81,7 @@ export class ConnectionManagerService {
     } catch (error) {
       this.logger.error(
         `Failed to register MongoDB connection '${name}'`,
-        error
+        error,
       );
       throw error;
     }
@@ -125,7 +125,7 @@ export class ConnectionManagerService {
    */
   getConnection(
     name: string,
-    type: 'postgres' | 'mongodb' | 'redis'
+    type: 'postgres' | 'mongodb' | 'redis',
   ): DatabaseConnection | null {
     const key = `${type}:${name}`;
     const connection = this.connections.get(key);
@@ -148,7 +148,7 @@ export class ConnectionManagerService {
    * Get connections by type
    */
   getConnectionsByType(
-    type: 'postgres' | 'mongodb' | 'redis'
+    type: 'postgres' | 'mongodb' | 'redis',
   ): DatabaseConnection[] {
     return Array.from(this.connections.entries())
       .filter(([key]) => key.startsWith(`${type}:`))
@@ -166,7 +166,7 @@ export class ConnectionManagerService {
       failed: boolean;
       queryTime: number;
       slow: boolean;
-    }>
+    }>,
   ): void {
     const key = `${type}:${name}`;
     const metrics = this.connectionMetrics.get(key);
@@ -201,7 +201,7 @@ export class ConnectionManagerService {
    */
   getMetrics(
     name: string,
-    type: 'postgres' | 'mongodb' | 'redis'
+    type: 'postgres' | 'mongodb' | 'redis',
   ): ConnectionMetrics | null {
     const key = `${type}:${name}`;
     return this.connectionMetrics.get(key) || null;
@@ -227,7 +227,7 @@ export class ConnectionManagerService {
    */
   async isHealthy(
     name: string,
-    type: 'postgres' | 'mongodb' | 'redis'
+    type: 'postgres' | 'mongodb' | 'redis',
   ): Promise<boolean> {
     const connection = this.getConnection(name, type);
 
@@ -266,7 +266,7 @@ export class ConnectionManagerService {
    */
   async getPoolStats(
     name: string,
-    type: 'postgres' | 'mongodb' | 'redis'
+    type: 'postgres' | 'mongodb' | 'redis',
   ): Promise<any> {
     const connection = this.getConnection(name, type);
 
@@ -307,7 +307,7 @@ export class ConnectionManagerService {
    * Begin a distributed transaction
    */
   async beginDistributedTransaction(): Promise<string> {
-    const transactionId = uuidv4();
+    const transactionId = randomUUID();
 
     const transaction: DistributedTransaction = {
       id: transactionId,
@@ -330,7 +330,7 @@ export class ConnectionManagerService {
     transactionId: string,
     connectionName: string,
     connectionType: string,
-    transactionObject: any
+    transactionObject: any,
   ): void {
     const transaction = this.distributedTransactions.get(transactionId);
 
@@ -340,13 +340,13 @@ export class ConnectionManagerService {
 
     if (transaction.status !== 'pending') {
       throw new Error(
-        `Distributed transaction ${transactionId} is not pending`
+        `Distributed transaction ${transactionId} is not pending`,
       );
     }
 
     transaction.connections.set(
       `${connectionType}:${connectionName}`,
-      transactionObject
+      transactionObject,
     );
   }
 
@@ -362,7 +362,7 @@ export class ConnectionManagerService {
 
     if (transaction.status !== 'pending') {
       throw new Error(
-        `Distributed transaction ${transactionId} is not pending`
+        `Distributed transaction ${transactionId} is not pending`,
       );
     }
 
@@ -388,7 +388,7 @@ export class ConnectionManagerService {
     } catch (error) {
       this.logger.error(
         `Failed to commit distributed transaction: ${transactionId}`,
-        error
+        error,
       );
       // Attempt rollback
       await this.rollbackDistributedTransaction(transactionId);
@@ -426,9 +426,9 @@ export class ConnectionManagerService {
             txObject.rollbackTransaction().catch((err: any) => {
               this.logger.error(
                 `Failed to rollback PostgreSQL in transaction ${transactionId}`,
-                err
+                err,
               );
-            })
+            }),
           );
         } else if (key.startsWith('mongodb:')) {
           // Rollback MongoDB transaction
@@ -436,9 +436,9 @@ export class ConnectionManagerService {
             txObject.abortTransaction().catch((err: any) => {
               this.logger.error(
                 `Failed to rollback MongoDB in transaction ${transactionId}`,
-                err
+                err,
               );
-            })
+            }),
           );
         }
       }
@@ -450,7 +450,7 @@ export class ConnectionManagerService {
     } catch (error) {
       this.logger.error(
         `Error during rollback of distributed transaction: ${transactionId}`,
-        error
+        error,
       );
       throw error;
     } finally {
@@ -477,7 +477,7 @@ export class ConnectionManagerService {
           this.rollbackDistributedTransaction(id).catch((error) => {
             this.logger.error(
               `Failed to rollback old transaction ${id}`,
-              error
+              error,
             );
           });
         } else {

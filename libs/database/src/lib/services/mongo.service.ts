@@ -3,7 +3,7 @@ import {
   Connection,
   Model,
   Document,
-  FilterQuery,
+  QueryFilter,
   UpdateQuery,
   QueryOptions as MongooseQueryOptions,
   ClientSession,
@@ -35,7 +35,7 @@ export class MongoService {
       config: MongoConnectionConfig;
     }>,
     private readonly optimizationService: QueryOptimizationService,
-    private readonly connectionManager: ConnectionManagerService
+    private readonly connectionManager: ConnectionManagerService,
   ) {}
 
   async initialize(): Promise<void> {
@@ -43,9 +43,8 @@ export class MongoService {
       try {
         // Connection is already established by Mongoose module
         // We just need to register it in our service
-        const connection = await this.connectionManager.registerMongoConnection(
-          name
-        );
+        const connection =
+          await this.connectionManager.registerMongoConnection(name);
         if (connection) {
           this.connections.set(name, connection as Connection);
           this.models.set(name, new Map());
@@ -54,13 +53,13 @@ export class MongoService {
           await this.createIndexes(name);
 
           this.logger.log(
-            `MongoDB connection '${name}' registered successfully`
+            `MongoDB connection '${name}' registered successfully`,
           );
         }
       } catch (error) {
         this.logger.error(
           `Failed to register MongoDB connection '${name}'`,
-          error
+          error,
         );
         throw error;
       }
@@ -84,7 +83,7 @@ export class MongoService {
   getModel<T extends Document>(
     connectionName: string,
     modelName: string,
-    schema?: any
+    schema?: any,
   ): Model<T> {
     const connection = this.getConnection(connectionName);
     const modelMap = this.models.get(connectionName);
@@ -94,7 +93,7 @@ export class MongoService {
         // Use a dynamic schema if none provided
         const model = connection.model<T>(
           modelName,
-          new connection.base.Schema({}, { strict: false })
+          new connection.base.Schema({}, { strict: false }),
         );
         modelMap?.set(modelName, model);
         return model;
@@ -113,7 +112,7 @@ export class MongoService {
   async find<T extends Document>(
     connectionName: string,
     modelName: string,
-    options: QueryOptions = {}
+    options: QueryOptions = {},
   ): Promise<PaginationResult<T>> {
     const model = this.getModel<T>(connectionName, modelName);
     const startTime = Date.now();
@@ -155,10 +154,13 @@ export class MongoService {
 
     // Apply sorting
     if (options.sort?.length) {
-      const sortObj = options.sort.reduce((acc, sort) => {
-        acc[sort.field] = sort.order === 'ASC' ? 1 : -1;
-        return acc;
-      }, {} as Record<string, 1 | -1>);
+      const sortObj = options.sort.reduce(
+        (acc, sort) => {
+          acc[sort.field] = sort.order === 'ASC' ? 1 : -1;
+          return acc;
+        },
+        {} as Record<string, 1 | -1>,
+      );
       findQuery = findQuery.sort(sortObj);
     }
 
@@ -216,7 +218,7 @@ export class MongoService {
     connectionName: string,
     modelName: string,
     filter: FilterOptions[],
-    options: QueryOptions = {}
+    options: QueryOptions = {},
   ): Promise<T | null> {
     const model = this.getModel<T>(connectionName, modelName);
     const filterQuery = this.buildFilterQuery(filter);
@@ -249,7 +251,7 @@ export class MongoService {
     connectionName: string,
     modelName: string,
     data: Partial<T>,
-    options: QueryOptions = {}
+    options: QueryOptions = {},
   ): Promise<T> {
     const model = this.getModel<T>(connectionName, modelName);
 
@@ -269,7 +271,7 @@ export class MongoService {
     connectionName: string,
     modelName: string,
     data: Partial<T>[],
-    options: QueryOptions = {}
+    options: QueryOptions = {},
   ): Promise<BulkWriteResult> {
     const model = this.getModel<T>(connectionName, modelName);
     const errors: Array<{ index: number; error: Error; document?: any }> = [];
@@ -330,7 +332,7 @@ export class MongoService {
     modelName: string,
     id: string,
     data: Partial<T>,
-    options: QueryOptions = {}
+    options: QueryOptions = {},
   ): Promise<T | null> {
     const model = this.getModel<T>(connectionName, modelName);
     const updateOptions: MongooseQueryOptions = {
@@ -356,7 +358,7 @@ export class MongoService {
     modelName: string,
     filter: FilterOptions[],
     data: Partial<T>,
-    options: QueryOptions = {}
+    options: QueryOptions = {},
   ): Promise<number> {
     const model = this.getModel<T>(connectionName, modelName);
     const filterQuery = this.buildFilterQuery(filter);
@@ -369,7 +371,7 @@ export class MongoService {
     const result = await model.updateMany(
       filterQuery,
       data as UpdateQuery<T>,
-      updateOptions
+      updateOptions,
     );
     return result.modifiedCount || 0;
   }
@@ -381,7 +383,7 @@ export class MongoService {
     connectionName: string,
     modelName: string,
     id: string,
-    options: QueryOptions = {}
+    options: QueryOptions = {},
   ): Promise<boolean> {
     const model = this.getModel<T>(connectionName, modelName);
     const deleteOptions: MongooseQueryOptions = {};
@@ -401,7 +403,7 @@ export class MongoService {
     connectionName: string,
     modelName: string,
     filter: FilterOptions[],
-    options: QueryOptions = {}
+    options: QueryOptions = {},
   ): Promise<number> {
     const model = this.getModel<T>(connectionName, modelName);
     const filterQuery = this.buildFilterQuery(filter);
@@ -421,7 +423,7 @@ export class MongoService {
   async count<T extends Document>(
     connectionName: string,
     modelName: string,
-    filter?: FilterOptions[]
+    filter?: FilterOptions[],
   ): Promise<number> {
     const model = this.getModel<T>(connectionName, modelName);
     const filterQuery = filter ? this.buildFilterQuery(filter) : {};
@@ -436,13 +438,13 @@ export class MongoService {
     connectionName: string,
     modelName: string,
     filter: FilterOptions[],
-    options: QueryOptions = {}
+    options: QueryOptions = {},
   ): Promise<boolean> {
     const count = await this.count<T>(
       connectionName,
       modelName,
       filter,
-      options
+      options,
     );
     return count > 0;
   }
@@ -453,7 +455,7 @@ export class MongoService {
   async aggregate<T extends Document>(
     connectionName: string,
     modelName: string,
-    options: AggregationOptions
+    options: AggregationOptions,
   ): Promise<AggregationResult> {
     const model = this.getModel<T>(connectionName, modelName);
     const pipeline: any[] = [];
@@ -466,10 +468,13 @@ export class MongoService {
     // Add group stage
     if (options.groupBy?.length) {
       const groupStage: any = {
-        _id: options.groupBy.reduce((acc, field) => {
-          acc[field] = `$${field}`;
-          return acc;
-        }, {} as Record<string, string>),
+        _id: options.groupBy.reduce(
+          (acc, field) => {
+            acc[field] = `$${field}`;
+            return acc;
+          },
+          {} as Record<string, string>,
+        ),
       };
 
       if (options.count) {
@@ -505,10 +510,13 @@ export class MongoService {
 
     // Add sort stage
     if (options.sort?.length) {
-      const sortStage = options.sort.reduce((acc, sort) => {
-        acc[sort.field] = sort.order === 'ASC' ? 1 : -1;
-        return acc;
-      }, {} as Record<string, 1 | -1>);
+      const sortStage = options.sort.reduce(
+        (acc, sort) => {
+          acc[sort.field] = sort.order === 'ASC' ? 1 : -1;
+          return acc;
+        },
+        {} as Record<string, 1 | -1>,
+      );
       pipeline.push({ $sort: sortStage });
     }
 
@@ -525,22 +533,34 @@ export class MongoService {
       groups: results.map((result) => ({
         key: result._id || {},
         count: result.count,
-        sum: options.sum?.reduce((acc, field) => {
-          acc[field] = result[`sum_${field}`] || 0;
-          return acc;
-        }, {} as Record<string, number>),
-        avg: options.avg?.reduce((acc, field) => {
-          acc[field] = result[`avg_${field}`] || 0;
-          return acc;
-        }, {} as Record<string, number>),
-        min: options.min?.reduce((acc, field) => {
-          acc[field] = result[`min_${field}`];
-          return acc;
-        }, {} as Record<string, any>),
-        max: options.max?.reduce((acc, field) => {
-          acc[field] = result[`max_${field}`];
-          return acc;
-        }, {} as Record<string, any>),
+        sum: options.sum?.reduce(
+          (acc, field) => {
+            acc[field] = result[`sum_${field}`] || 0;
+            return acc;
+          },
+          {} as Record<string, number>,
+        ),
+        avg: options.avg?.reduce(
+          (acc, field) => {
+            acc[field] = result[`avg_${field}`] || 0;
+            return acc;
+          },
+          {} as Record<string, number>,
+        ),
+        min: options.min?.reduce(
+          (acc, field) => {
+            acc[field] = result[`min_${field}`];
+            return acc;
+          },
+          {} as Record<string, any>,
+        ),
+        max: options.max?.reduce(
+          (acc, field) => {
+            acc[field] = result[`max_${field}`];
+            return acc;
+          },
+          {} as Record<string, any>,
+        ),
       })),
       total: results.length,
       executionTime,
@@ -553,7 +573,7 @@ export class MongoService {
   async executeAggregation(
     connectionName: string,
     modelName: string,
-    pipeline: any[]
+    pipeline: any[],
   ): Promise<any[]> {
     const model = this.getModel(connectionName, modelName);
     const startTime = Date.now();
@@ -582,7 +602,7 @@ export class MongoService {
     connectionName: string,
     modelName: string,
     searchOptions: SearchOptions,
-    queryOptions: QueryOptions = {}
+    queryOptions: QueryOptions = {},
   ): Promise<PaginationResult<T>> {
     const model = this.getModel<T>(connectionName, modelName);
 
@@ -596,10 +616,13 @@ export class MongoService {
 
     // Add score projection for relevance
     const projection = {
-      ...(queryOptions.select?.reduce((acc, field) => {
-        acc[field] = 1;
-        return acc;
-      }, {} as Record<string, 1>) || {}),
+      ...(queryOptions.select?.reduce(
+        (acc, field) => {
+          acc[field] = 1;
+          return acc;
+        },
+        {} as Record<string, 1>,
+      ) || {}),
       score: { $meta: 'textScore' },
     };
 
@@ -614,10 +637,13 @@ export class MongoService {
 
     // Apply additional sorting if specified
     if (queryOptions.sort?.length) {
-      const sortObj = queryOptions.sort.reduce((acc, sort) => {
-        acc[sort.field] = sort.order === 'ASC' ? 1 : -1;
-        return acc;
-      }, {} as Record<string, 1 | -1>);
+      const sortObj = queryOptions.sort.reduce(
+        (acc, sort) => {
+          acc[sort.field] = sort.order === 'ASC' ? 1 : -1;
+          return acc;
+        },
+        {} as Record<string, 1 | -1>,
+      );
       query = query.sort(sortObj);
     }
 
@@ -655,7 +681,7 @@ export class MongoService {
   async transaction<R>(
     connectionName: string,
     fn: (session: ClientSession) => Promise<R>,
-    options: TransactionOptions = {}
+    options: TransactionOptions = {},
   ): Promise<R> {
     const connection = this.getConnection(connectionName);
     const session = await connection.startSession();
@@ -719,12 +745,12 @@ export class MongoService {
       // Example: creating text indexes for search functionality
 
       this.logger.log(
-        `Indexes created for MongoDB connection '${connectionName}'`
+        `Indexes created for MongoDB connection '${connectionName}'`,
       );
     } catch (error) {
       this.logger.error(
         `Failed to create indexes for '${connectionName}'`,
-        error
+        error,
       );
     }
   }
@@ -732,12 +758,12 @@ export class MongoService {
   /**
    * Build filter query from filter options
    */
-  private buildFilterQuery(filters?: FilterOptions[]): FilterQuery<any> {
+  private buildFilterQuery(filters?: FilterOptions[]): QueryFilter<any> {
     if (!filters?.length) {
       return {};
     }
 
-    const query: FilterQuery<any> = {};
+    const query: QueryFilter<any> = {};
 
     filters.forEach((filter) => {
       switch (filter.operator) {
@@ -815,7 +841,7 @@ export class MongoService {
   /**
    * Build search query
    */
-  private buildSearchQuery(search: SearchOptions): FilterQuery<any> {
+  private buildSearchQuery(search: SearchOptions): QueryFilter<any> {
     const conditions = search.fields.map((field) => ({
       [field]: {
         $regex: search.query,

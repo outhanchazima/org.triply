@@ -13,7 +13,7 @@
     "./package.json": "./package.json"
   },
   "dependencies": {
-    "amadeus": "^9.0.0",
+    "amadeus": "^11.0.0",
     "@nestjs/config": "^4.0.2"
   }
 }
