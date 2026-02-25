@@ -42,7 +42,7 @@ export class RequestService {
         // Throws an error if the provided content type is not valid
         throw new HttpException(
           'Invalid request content type',
-          HttpStatus.BAD_REQUEST
+          HttpStatus.BAD_REQUEST,
         );
     }
   }
@@ -54,7 +54,7 @@ export class RequestService {
    * @private
    */
   private prepareRequestBody(
-    payload: Record<string, unknown>
+    payload: Record<string, unknown>,
   ): string | FormData | Record<string, unknown> {
     switch (this.contentType) {
       case RequestContentType.JSON:
@@ -70,7 +70,7 @@ export class RequestService {
           if (value && typeof value === 'object' && 'path' in value) {
             data.append(
               keys[i],
-              fs.createReadStream((value as { path: string }).path)
+              fs.createReadStream((value as { path: string }).path),
             );
           } else {
             data.append(keys[i], String(value));
@@ -96,7 +96,7 @@ export class RequestService {
     payload: P,
     contentType: string = RequestContentType.JSON,
     token?: string,
-    headers?: AxiosRequestHeaders
+    headers?: AxiosRequestHeaders,
   ): Promise<{ status: number; data: R }> {
     // Log request start time
     const startTime: number = Date.now();
@@ -121,10 +121,10 @@ export class RequestService {
               error.response?.data
                 ? (error.response.data as string | Record<string, unknown>)
                 : 'An error occurred while making the request',
-              error.response?.status || HttpStatus.BAD_REQUEST
+              error.response?.status || HttpStatus.BAD_REQUEST,
             );
-          })
-        )
+          }),
+        ),
     );
     // Analyze successful request response time
     this.analyzeRequest(startTime, url, status);
@@ -140,7 +140,7 @@ export class RequestService {
   async deleteRequest<R>(
     url: string,
     token?: string,
-    headers?: AxiosRequestHeaders
+    headers?: AxiosRequestHeaders,
   ): Promise<{ data: R } | void> {
     // Log request start time
     const startTime: number = Date.now();
@@ -164,10 +164,10 @@ export class RequestService {
               error.response?.data
                 ? (error.response.data as string | Record<string, unknown>)
                 : 'An error occurred while making the request',
-              error.response?.status || HttpStatus.BAD_REQUEST
+              error.response?.status || HttpStatus.BAD_REQUEST,
             );
-          })
-        )
+          }),
+        ),
     );
     if (data) return data;
   }
@@ -185,7 +185,7 @@ export class RequestService {
     payload: P,
     contentType: string = RequestContentType.JSON,
     token?: string,
-    headers?: AxiosRequestHeaders
+    headers?: AxiosRequestHeaders,
   ): Promise<{ status: number; data: R }> {
     // Log request start time
     const startTime: number = Date.now();
@@ -210,10 +210,10 @@ export class RequestService {
               error.response?.data
                 ? (error.response.data as string | Record<string, unknown>)
                 : 'An error occurred while making the request',
-              error.response?.status || HttpStatus.BAD_REQUEST
+              error.response?.status || HttpStatus.BAD_REQUEST,
             );
-          })
-        )
+          }),
+        ),
     );
     // Analyze successful request response time
     this.analyzeRequest(startTime, url, status);
@@ -233,7 +233,7 @@ export class RequestService {
     payload: P,
     contentType: string = RequestContentType.JSON,
     token?: string,
-    headers?: AxiosRequestHeaders
+    headers?: AxiosRequestHeaders,
   ): Promise<{ status: number; data: R }> {
     console.log(url, payload);
     // Log request start time
@@ -261,10 +261,10 @@ export class RequestService {
               error.response?.data
                 ? (error.response.data as string | Record<string, unknown>)
                 : 'An error occurred while making the request',
-              error.response?.status || HttpStatus.BAD_REQUEST
+              error.response?.status || HttpStatus.BAD_REQUEST,
             );
-          })
-        )
+          }),
+        ),
     );
     // Analyze successful request response time
     this.analyzeRequest(startTime, url, status);
@@ -280,7 +280,7 @@ export class RequestService {
   async getRequest<R>(
     url: string,
     token?: string,
-    headers?: AxiosRequestHeaders
+    headers?: AxiosRequestHeaders,
   ): Promise<{ status: number; data: R }> {
     // Log request start time
     const startTime: number = Date.now();
@@ -305,10 +305,10 @@ export class RequestService {
               error.response?.data
                 ? (error.response.data as string | Record<string, unknown>)
                 : 'An error occurred while making the request',
-              error.response?.status || HttpStatus.BAD_REQUEST
+              error.response?.status || HttpStatus.BAD_REQUEST,
             );
-          })
-        )
+          }),
+        ),
     );
     // Analyze successful request response time
     this.analyzeRequest(startTime, url, status);
@@ -318,13 +318,13 @@ export class RequestService {
   analyzeRequest(
     startTime: number,
     url: string,
-    status: number | undefined
+    status: number | undefined,
   ): void {
     const timeInSec: number = (Date.now() - startTime) / 1000;
     console.log(
       `URL: ${url} - STATUS: ${
         status || 'UNKNOWN'
-      } - RESPONSE TIME: ${timeInSec} (Sec)`
+      } - RESPONSE TIME: ${timeInSec} (Sec)`,
     );
   }
 }
