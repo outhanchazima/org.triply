@@ -42,7 +42,56 @@ libs/shared/src/lib/
 
 ### `SharedModule`
 
-Imports `ConfigModule` and provides `RequestService` — a typed HTTP client wrapper around `@nestjs/axios` supporting JSON, form-urlencoded, and multipart content types.
+Imports `ConfigModule` and provides `RequestService` — a typed HTTP client wrapper around `@nestjs/axios` with content-type negotiation, Bearer-token injection, per-request timing, retry with back-off, query-string serialisation, binary downloads, and health-check probes.
+
+#### `RequestService` — legacy convenience methods
+
+| Method                                             | Description                     |
+| -------------------------------------------------- | ------------------------------- |
+| `getRequest<R>(url, token?, headers?)`             | GET with optional auth          |
+| `postRequest<P,R>(url, payload, ct?, token?, h?)`  | POST with body encoding         |
+| `putRequest<P,R>(url, payload, ct?, token?, h?)`   | PUT with body encoding          |
+| `patchRequest<P,R>(url, payload, ct?, token?, h?)` | PATCH with body encoding        |
+| `deleteRequest<R>(url, token?, headers?)`          | DELETE — returns body or `void` |
+
+#### `RequestService` — advanced API
+
+| Method                                        | Description                                                        |
+| --------------------------------------------- | ------------------------------------------------------------------ |
+| `request<R>(options)`                         | Generic single-object API with query params, timeout, responseType |
+| `requestFull<R>(options)`                     | Like `request()` but also returns response **headers**             |
+| `getWithParams<R>(url, params, token?, h?)`   | GET with typed query-string params auto-serialised via `qs`        |
+| `headRequest(url, token?, headers?)`          | HEAD — status + response headers (no body transfer)                |
+| `requestWithRetry<R>(options, retryOptions?)` | Automatic retry with exponential back-off via `retry.util`         |
+| `isAlive(url, timeout?)`                      | Health-check probe — returns `true` on 2xx (default 5 s timeout)   |
+| `downloadRequest(url, token?, headers?)`      | Binary download as `ArrayBuffer` + response headers                |
+
+#### Exported types
+
+| Type                 | Description                                                 |
+| -------------------- | ----------------------------------------------------------- |
+| `RequestContentType` | Enum: `JSON`, `FORM_URLENCODED`, `FORM_DATA`                |
+| `HttpMethod`         | `'GET' \| 'POST' \| 'PUT' \| 'PATCH' \| 'DELETE' \| 'HEAD'` |
+| `RequestOptions`     | Options bag for `request()` / `requestWithRetry()`          |
+| `FullResponse<R>`    | `{ status, data, headers }` envelope                        |
+
+```typescript
+// Query-param GET with custom timeout
+const { data } = await http.request<FlightOffer[]>({
+  url: 'https://api.amadeus.com/v2/shopping/flight-offers',
+  params: { originLocationCode: 'LLW', destinationLocationCode: 'JNB' },
+  token: amadeusToken,
+  timeout: 30_000,
+});
+
+// Retry a payment call
+const { data: result } = await http.requestWithRetry<PaymentResult>({ method: 'POST', url: paymentUrl, payload: { amount: 5000 }, token }, { maxAttempts: 3, delayMs: 1000, backoff: true });
+
+// Health-check probe
+if (await http.isAlive('https://api.example.com/health')) {
+  /* reachable */
+}
+```
 
 ### `SharedCacheModule`
 
