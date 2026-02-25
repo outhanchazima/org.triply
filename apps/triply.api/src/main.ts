@@ -4,7 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import compression from 'compression';
 import helmet from 'helmet';
-import { AppModule } from './app/app.module';
+import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -60,8 +60,6 @@ async function bootstrap() {
       .setDescription(appConfig.swagger.description)
       .setVersion(appConfig.swagger.version)
       .addBearerAuth()
-      .addTag('health', 'Health check endpoints')
-      .addTag('flights', 'Flight search and booking')
       .addServer(
         appConfig.isSandbox
           ? `http://localhost:${appConfig.port}`

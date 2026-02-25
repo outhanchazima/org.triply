@@ -1,13 +1,11 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
-import { APP_GUARD } from '@nestjs/core';
-import { AmadeusModule } from '@org.triply/amadeus';
-import { appConfig, validate } from '../config';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
-import { HealthController } from './health.controller';
+import { HealthModule, validate } from '@org.triply/shared';
+import { appConfig } from './config/app.config';
+import { FlightsModule } from './modules/flights/flights.module';
 
 @Module({
   imports: [
@@ -41,10 +39,12 @@ import { HealthController } from './health.controller';
       verboseMemoryLeak: true,
     }),
 
+    // ── Shared Modules ───────────────────────────────────
+    HealthModule,
+
     // ── Feature Modules ──────────────────────────────────
-    AmadeusModule,
+    FlightsModule,
   ],
-  controllers: [AppController, HealthController],
-  providers: [AppService, { provide: APP_GUARD, useClass: ThrottlerGuard }],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}

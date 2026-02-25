@@ -2,20 +2,16 @@ import { Injectable } from '@nestjs/common';
 import { AmadeusClient } from '@org.triply/amadeus';
 
 @Injectable()
-export class AppService {
+export class FlightsService {
   constructor(private readonly amadeus: AmadeusClient) {}
 
-  getData(): { message: string } {
-    return { message: 'Hello API' };
-  }
-
-  public async searchFlights(
+  async search(
     origin: string,
     destination: string,
     date: string,
-    adults = '1'
+    adults = '1',
   ) {
-    return await this.amadeus.shopping.flightOffersSearch.get({
+    return this.amadeus.shopping.flightOffersSearch.get({
       originLocationCode: origin,
       destinationLocationCode: destination,
       departureDate: date,

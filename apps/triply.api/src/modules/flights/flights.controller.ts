@@ -1,22 +1,16 @@
 import { Controller, Get, Logger, Query } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { AppService } from './app.service';
 import { SearchFlightsDto } from './dto/search-flights.dto';
+import { FlightsService } from './flights.service';
 
 @ApiTags('flights')
-@Controller()
-export class AppController {
-  private readonly logger = new Logger(AppController.name);
+@Controller('flights')
+export class FlightsController {
+  private readonly logger = new Logger(FlightsController.name);
 
-  constructor(private readonly appService: AppService) {}
+  constructor(private readonly flightsService: FlightsService) {}
 
-  @Get()
-  @ApiOperation({ summary: 'API root' })
-  getData() {
-    return this.appService.getData();
-  }
-
-  @Get('flights/search')
+  @Get('search')
   @ApiOperation({ summary: 'Search flight offers' })
   @ApiResponse({
     status: 200,
@@ -24,12 +18,12 @@ export class AppController {
   })
   @ApiResponse({ status: 400, description: 'Invalid search parameters' })
   @ApiResponse({ status: 429, description: 'Rate limit exceeded' })
-  async searchFlights(@Query() query: SearchFlightsDto) {
+  async search(@Query() query: SearchFlightsDto) {
     this.logger.log(
       `Flight search: ${query.origin} → ${query.destination} on ${query.date} (${query.adults} adults)`,
     );
 
-    return this.appService.searchFlights(
+    return this.flightsService.search(
       query.origin,
       query.destination,
       query.date,
