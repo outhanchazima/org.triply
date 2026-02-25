@@ -8,7 +8,7 @@ export const baseEnvSchema = {
   APP_MODE: "'sandbox' | 'live' = 'sandbox'",
   PORT: type('number.port').default(3000),
   API_PREFIX: type('string').default('api'),
-  API_VERSION: type('string').default('v1'),
+  API_VERSION: type('string').default('1.0.0'),
 
   CORS_ORIGINS: type('string').default('*'),
 
