@@ -434,6 +434,26 @@ For detailed contribution guidelines, see [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## 📚 Documentation
 
+### Technical Documentation
+
+For comprehensive technical documentation, see the **[`docs/`](./docs/README.md)** folder:
+
+- **[Architecture Overview](./docs/architecture/overview.md)** — System design, tech stack, and design principles
+- **[Project Structure](./docs/architecture/project-structure.md)** — Monorepo layout, apps, libs, and file conventions
+- **[Dependency Graph](./docs/architecture/dependency-graph.md)** — Inter-package dependency map and data flow
+- **[Installation Guide](./docs/getting-started/installation.md)** — Prerequisites, cloning, and first run
+- **[Configuration Guide](./docs/getting-started/configuration.md)** — Environment variables, app modes, and secrets
+- **[API Reference](./docs/api/triply-api.md)** — REST endpoints, Swagger, versioning, and rate limiting
+- **[Database Library](./docs/libraries/database.md)** — PostgreSQL, MongoDB, Redis services and repositories
+- **[Shared Library](./docs/libraries/shared.md)** — Config, HTTP client, decorators, filters, interceptors, utilities
+- **[Amadeus Library](./docs/libraries/amadeus.md)** — Amadeus API client for flights, hotels, and travel
+- **[Utils Library](./docs/libraries/utils.md)** — Standalone utility module
+- **[Testing Guide](./docs/guides/testing.md)** — Unit tests, E2E tests, coverage, and best practices
+- **[Contributing Guide](./docs/guides/contributing.md)** — Commit conventions, PR workflow, and code style
+- **[Deployment Guide](./docs/guides/deployment.md)** — Building, CI/CD pipeline, and production checklist
+
+### Quick Links
+
 - **[Setup Guide](./SETUP.md)** - Detailed setup instructions
 - **[Contributing Guide](./CONTRIBUTING.md)** - How to contribute to the project
 - **[Changelog](./CHANGELOG.md)** - Project changelog
