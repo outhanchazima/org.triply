@@ -3,6 +3,11 @@
   "version": "0.0.1",
   "private": true,
   "nx": {
+    "name": "triply.api",
+    "tags": [
+      "type:app",
+      "scope:api"
+    ],
     "targets": {
       "build": {
         "executor": "nx:run-commands",
@@ -28,15 +33,15 @@
           "build"
         ],
         "options": {
-          "buildTarget": "@org.triply/triply.api:build",
+          "buildTarget": "triply.api:build",
           "runBuildTargetDependencies": false
         },
         "configurations": {
           "development": {
-            "buildTarget": "@org.triply/triply.api:build:development"
+            "buildTarget": "triply.api:build:development"
           },
           "production": {
-            "buildTarget": "@org.triply/triply.api:build:production"
+            "buildTarget": "triply.api:build:production"
           }
         }
       },

@@ -12,6 +12,13 @@
     },
     "./package.json": "./package.json"
   },
+  "nx": {
+    "name": "amadeus",
+    "tags": [
+      "type:lib",
+      "scope:api"
+    ]
+  },
   "dependencies": {
     "amadeus": "^11.0.0",
     "@nestjs/config": "^4.0.2"

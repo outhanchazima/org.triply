@@ -3,8 +3,13 @@
   "version": "0.0.1",
   "private": true,
   "nx": {
+    "name": "triply.payments-e2e",
+    "tags": [
+      "type:e2e",
+      "scope:payments"
+    ],
     "implicitDependencies": [
-      "@org.triply/triply.payments"
+      "triply.payments"
     ],
     "targets": {
       "e2e": {
@@ -17,8 +22,8 @@
           "passWithNoTests": true
         },
         "dependsOn": [
-          "@org.triply/triply.payments:build",
-          "@org.triply/triply.payments:serve"
+          "triply.payments:build",
+          "triply.payments:serve"
         ]
       }
     }

@@ -3,6 +3,11 @@
   "version": "0.0.1",
   "private": true,
   "nx": {
+    "name": "triply.payments",
+    "tags": [
+      "type:app",
+      "scope:payments"
+    ],
     "targets": {
       "build": {
         "executor": "nx:run-commands",
@@ -28,15 +33,15 @@
           "build"
         ],
         "options": {
-          "buildTarget": "@org.triply/triply.payments:build",
+          "buildTarget": "triply.payments:build",
           "runBuildTargetDependencies": false
         },
         "configurations": {
           "development": {
-            "buildTarget": "@org.triply/triply.payments:build:development"
+            "buildTarget": "triply.payments:build:development"
           },
           "production": {
-            "buildTarget": "@org.triply/triply.payments:build:production"
+            "buildTarget": "triply.payments:build:production"
           }
         }
       },
