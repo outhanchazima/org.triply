@@ -1,3 +1,21 @@
+/**
+ * @fileoverview Filter backend system inspired by Django REST Framework
+ * @module database/filters
+ * @description Provides pluggable filter backends that transform incoming
+ * HTTP request query parameters into structured {@link QueryOptions}.
+ *
+ * The module ships with four concrete backends:
+ * - {@link MainQueryFilterBackend} — full-featured filter/search/sort/pagination
+ * - {@link SearchFilterBackend} — text search only
+ * - {@link OrderingFilterBackend} — field ordering only
+ * - {@link CompositeFilterBackend} — chains multiple backends together
+ *
+ * Custom backends can be created by extending {@link QueryFilterBackend}.
+ *
+ * @author Outhan Chazima
+ * @version 1.0.0
+ */
+
 import { Injectable } from '@nestjs/common';
 import { Request } from 'express';
 import {
@@ -5,197 +23,59 @@ import {
   SortOptions,
   QueryOptions,
 } from '../interfaces/database.interface';
-import {
-  QueryFilterParser,
-  ParsedQueryFilter,
-} from '../utils/query-filter.parser';
+import { QueryFilterParser } from '../utils/query-filter.parser';
+import type { QueryFilterParserOptions } from '../utils/query-filter.parser';
 
 /**
- * Filter backend interface similar to Django REST Framework
+ * Interface for filter backends.
+ *
+ * @export
+ * @interface IFilterBackend
+ * @description Any class implementing this interface can be used to
+ * transform HTTP request parameters into {@link QueryOptions}.
  */
 export interface IFilterBackend {
-  filterQueryset<T>(
+  /**
+   * Apply filters from the request to the queryset.
+   *
+   * @param request - The incoming Express request.
+   * @param queryset - The current query options to augment.
+   * @param view - Optional view/controller reference.
+   * @returns The augmented query options.
+   */
+  filterQueryset(
     request: Request,
     queryset: QueryOptions,
-    view?: any
+    view?: unknown,
   ): QueryOptions;
 }
 
 /**
- * Main query filter backend implementation
+ * Abstract base class for filter backends.
+ *
+ * @abstract
+ * @class QueryFilterBackend
+ * @implements {IFilterBackend}
+ * @description Parses Django-style `field__lookup=value` query parameters
+ * and maps them to {@link FilterOptions}. Subclasses override
+ * `filterQueryset` for custom behaviour.
+ *
+ * @example
+ * ```typescript
+ * class StatusFilterBackend extends QueryFilterBackend {
+ *   constructor() {
+ *     super({ status: ['exact', 'in'] });
+ *   }
+ * }
+ * ```
  */
-@Injectable()
-export class MainQueryFilterBackend extends QueryFilterBackend<any> {
-  private parser: QueryFilterParser;
-
-  constructor(options?: {
-    searchFields?: string[];
-    filterFields?: string[];
-    orderingFields?: string[];
-    defaultPageSize?: number;
-    maxPageSize?: number;
-  }) {
-    this.parser = new QueryFilterParser({
-      searchFields: options?.searchFields || [],
-      defaultPageSize: options?.defaultPageSize || 20,
-      maxPageSize: options?.maxPageSize || 100,
-    });
-  }
-
-  /**
-   * Filter queryset based on request parameters
-   */
-  filterQueryset<T>(
-    request: Request,
-    queryset: QueryOptions = {},
-    view?: any
-  ): QueryOptions {
-    const parsed = this.parser.parse(request.query as any);
-
-    // Apply filters
-    if (parsed.filters.length > 0) {
-      queryset.filter = [...(queryset.filter || []), ...parsed.filters];
-    }
-
-    // Apply search
-    if (parsed.search) {
-      queryset.search = parsed.search;
-    }
-
-    // Apply ordering
-    if (parsed.ordering) {
-      queryset.sort = parsed.ordering;
-    }
-
-    // Apply pagination
-    if (parsed.page) {
-      queryset.page = parsed.page;
-    }
-    if (parsed.pageSize) {
-      queryset.limit = parsed.pageSize;
-    }
-
-    return queryset;
-  }
-
-  /**
-   * Set search fields dynamically
-   */
-  setSearchFields(fields: string[]): void {
-    this.parser.setSearchFields(fields);
-  }
-}
-
-/**
- * Search filter backend
- */
-@Injectable()
-export class SearchFilterBackend extends QueryFilterBackend<any> {
-  private searchFields: string[] = [];
-  private searchParam = 'search';
-
-  constructor(searchFields?: string[]) {
-    if (searchFields) {
-      this.searchFields = searchFields;
-    }
-  }
-
-  filterQueryset<T>(
-    request: Request,
-    queryset: QueryOptions = {},
-    view?: any
-  ): QueryOptions {
-    const searchQuery = request.query[this.searchParam] as string;
-
-    if (searchQuery && this.searchFields.length > 0) {
-      queryset.search = {
-        query: searchQuery,
-        fields: this.searchFields,
-        fuzzy: true,
-      };
-    }
-
-    return queryset;
-  }
-
-  setSearchFields(fields: string[]): void {
-    this.searchFields = fields;
-  }
-}
-
-/**
- * Ordering filter backend
- */
-@Injectable()
-export class OrderingFilterBackend extends QueryFilterBackend<any> {
-  private orderingFields: string[] = [];
-  private orderingParam = 'ordering';
-  private defaultOrdering?: string[];
-
-  constructor(options?: {
-    orderingFields?: string[];
-    defaultOrdering?: string[];
-  }) {
-    if (options?.orderingFields) {
-      this.orderingFields = options.orderingFields;
-    }
-    if (options?.defaultOrdering) {
-      this.defaultOrdering = options.defaultOrdering;
-    }
-  }
-
-  filterQueryset<T>(
-    request: Request,
-    queryset: QueryOptions = {},
-    view?: any
-  ): QueryOptions {
-    const ordering = request.query[this.orderingParam] as string;
-
-    if (ordering) {
-      const sortOptions = this.parseOrdering(ordering);
-      if (sortOptions.length > 0) {
-        queryset.sort = sortOptions;
-      }
-    } else if (this.defaultOrdering && !queryset.sort) {
-      queryset.sort = this.parseOrdering(this.defaultOrdering.join(','));
-    }
-
-    return queryset;
-  }
-
-  private parseOrdering(ordering: string): SortOptions[] {
-    const fields = ordering.split(',');
-    const sortOptions: SortOptions[] = [];
-
-    for (const field of fields) {
-      const trimmed = field.trim();
-      if (!trimmed) continue;
-
-      const isDescending = trimmed.startsWith('-');
-      const fieldName = isDescending ? trimmed.substring(1) : trimmed;
-
-      // Check if field is allowed
-      if (
-        this.orderingFields.length === 0 ||
-        this.orderingFields.includes(fieldName)
-      ) {
-        sortOptions.push({
-          field: fieldName,
-          order: isDescending ? 'DESC' : 'ASC',
-        });
-      }
-    }
-
-    return sortOptions;
-  }
-}
-
-/**
- * Base filter backend for advanced query filtering
- */
-export abstract class QueryFilterBackend<T = any> implements IFilterBackend {
+export abstract class QueryFilterBackend implements IFilterBackend {
+  /** Map of field name → allowed lookup types */
   private filterFields: Map<string, string[]> = new Map();
 
+  /**
+   * @param filterFields - Optional mapping of field names to allowed lookups.
+   */
   constructor(filterFields?: Record<string, string[]>) {
     if (filterFields) {
       Object.entries(filterFields).forEach(([field, lookups]) => {
@@ -204,12 +84,18 @@ export abstract class QueryFilterBackend<T = any> implements IFilterBackend {
     }
   }
 
-  abstract filter(queryset: T, request: Request, view?: unknown): T;
-
-  filterQueryset<T>(
+  /**
+   * Parse request query parameters and append matching filters to the queryset.
+   *
+   * @param request - The incoming Express request.
+   * @param queryset - Current query options.
+   * @param _view - Unused view reference.
+   * @returns The augmented query options.
+   */
+  filterQueryset(
     request: Request,
     queryset: QueryOptions = {},
-    view?: any
+    _view?: unknown,
   ): QueryOptions {
     const filters: FilterOptions[] = [];
 
@@ -238,10 +124,18 @@ export abstract class QueryFilterBackend<T = any> implements IFilterBackend {
     return queryset;
   }
 
+  /**
+   * Map a Django-style lookup to a {@link FilterOptions} object.
+   *
+   * @param field - Field name.
+   * @param lookup - Lookup type (e.g. `'exact'`, `'gte'`, `'in'`).
+   * @param value - Raw string value from the query parameter.
+   * @returns A structured filter option.
+   */
   private createFilter(
     field: string,
     lookup: string,
-    value: string
+    value: string,
   ): FilterOptions {
     switch (lookup) {
       case 'exact':
@@ -283,26 +177,285 @@ export abstract class QueryFilterBackend<T = any> implements IFilterBackend {
     }
   }
 
+  /**
+   * Register or update the allowed lookups for a field.
+   *
+   * @param field - Field name.
+   * @param lookups - Array of allowed lookup types.
+   */
   setFilterFields(field: string, lookups: string[]): void {
     this.filterFields.set(field, lookups);
   }
 }
 
 /**
- * Composite filter backend that combines multiple backends
+ * Full-featured filter backend using {@link QueryFilterParser}.
+ *
+ * Handles filter parameters, search, ordering, and pagination in
+ * a single pass over the request query string.
+ *
+ * @class MainQueryFilterBackend
+ * @extends {QueryFilterBackend}
  */
 @Injectable()
-export class CompositeFilterBackend extends QueryFilterBackend<any> {
-  private backends: QueryFilterBackend<any>[] = [];
+export class MainQueryFilterBackend extends QueryFilterBackend {
+  /** Internal query-parameter parser */
+  private parser: QueryFilterParser;
 
-  constructor(backends: QueryFilterBackend<any>[]) {
+  /**
+   * @param options - Optional parser configuration (search fields, page size).
+   */
+  constructor(options?: QueryFilterParserOptions) {
+    super();
+    this.parser = new QueryFilterParser({
+      searchFields: options?.searchFields || [],
+      defaultPageSize: options?.defaultPageSize || 20,
+      maxPageSize: options?.maxPageSize || 100,
+    });
+  }
+
+  /**
+   * Parse request parameters and apply filters, search, ordering, and pagination.
+   *
+   * @param request - The incoming Express request.
+   * @param queryset - Current query options.
+   * @param _view - Unused view reference.
+   * @returns The augmented query options.
+   */
+  override filterQueryset(
+    request: Request,
+    queryset: QueryOptions = {},
+    _view?: unknown,
+  ): QueryOptions {
+    const parsed = this.parser.parse(
+      request.query as Record<string, string | string[]>,
+    );
+
+    // Apply filters
+    if (parsed.filters.length > 0) {
+      queryset.filter = [...(queryset.filter || []), ...parsed.filters];
+    }
+
+    // Apply search
+    if (parsed.search) {
+      queryset.search = parsed.search;
+    }
+
+    // Apply ordering
+    if (parsed.ordering) {
+      queryset.sort = parsed.ordering;
+    }
+
+    // Apply pagination
+    queryset.page = parsed.pagination.page;
+    queryset.limit = parsed.pagination.pageSize;
+
+    return queryset;
+  }
+
+  /**
+   * Set searchable fields dynamically.
+   *
+   * @param fields - Array of field names to search.
+   */
+  setSearchFields(fields: string[]): void {
+    this.parser.setSearchFields(fields);
+  }
+}
+
+/**
+ * Filter backend that handles only text search.
+ *
+ * Reads the `search` query parameter and builds a
+ * {@link SearchOptions} targeting the configured fields.
+ *
+ * @class SearchFilterBackend
+ * @extends {QueryFilterBackend}
+ */
+@Injectable()
+export class SearchFilterBackend extends QueryFilterBackend {
+  /** Fields to apply the search query against */
+  private searchFields: string[] = [];
+
+  /** Query parameter name (default `'search'`) */
+  private searchParam = 'search';
+
+  /**
+   * @param searchFields - Optional array of searchable field names.
+   */
+  constructor(searchFields?: string[]) {
+    super();
+    if (searchFields) {
+      this.searchFields = searchFields;
+    }
+  }
+
+  /**
+   * Apply search from request parameters.
+   *
+   * @param request - The incoming Express request.
+   * @param queryset - Current query options.
+   * @param _view - Unused view reference.
+   * @returns The augmented query options.
+   */
+  override filterQueryset(
+    request: Request,
+    queryset: QueryOptions = {},
+    _view?: unknown,
+  ): QueryOptions {
+    const searchQuery = request.query[this.searchParam] as string;
+
+    if (searchQuery && this.searchFields.length > 0) {
+      queryset.search = {
+        query: searchQuery,
+        fields: this.searchFields,
+        fuzzy: true,
+      };
+    }
+
+    return queryset;
+  }
+
+  /**
+   * Set searchable fields dynamically.
+   *
+   * @param fields - Array of field names.
+   */
+  setSearchFields(fields: string[]): void {
+    this.searchFields = fields;
+  }
+}
+
+/**
+ * Filter backend that handles field ordering.
+ *
+ * Reads the `ordering` query parameter (comma-separated, `-` prefix for
+ * descending) and converts it to {@link SortOptions}.
+ *
+ * @class OrderingFilterBackend
+ * @extends {QueryFilterBackend}
+ */
+@Injectable()
+export class OrderingFilterBackend extends QueryFilterBackend {
+  /** Allowed ordering fields (empty = all allowed) */
+  private orderingFields: string[] = [];
+
+  /** Query parameter name (default `'ordering'`) */
+  private orderingParam = 'ordering';
+
+  /** Default ordering applied when no `ordering` param is present */
+  private defaultOrdering?: string[];
+
+  /**
+   * @param options - Optional ordering configuration.
+   */
+  constructor(options?: {
+    orderingFields?: string[];
+    defaultOrdering?: string[];
+  }) {
+    super();
+    if (options?.orderingFields) {
+      this.orderingFields = options.orderingFields;
+    }
+    if (options?.defaultOrdering) {
+      this.defaultOrdering = options.defaultOrdering;
+    }
+  }
+
+  /**
+   * Apply ordering from request parameters.
+   *
+   * @param request - The incoming Express request.
+   * @param queryset - Current query options.
+   * @param _view - Unused view reference.
+   * @returns The augmented query options.
+   */
+  override filterQueryset(
+    request: Request,
+    queryset: QueryOptions = {},
+    _view?: unknown,
+  ): QueryOptions {
+    const ordering = request.query[this.orderingParam] as string;
+
+    if (ordering) {
+      const sortOptions = this.parseOrdering(ordering);
+      if (sortOptions.length > 0) {
+        queryset.sort = sortOptions;
+      }
+    } else if (this.defaultOrdering && !queryset.sort) {
+      queryset.sort = this.parseOrdering(this.defaultOrdering.join(','));
+    }
+
+    return queryset;
+  }
+
+  /**
+   * Parse a comma-separated ordering string into sort options.
+   *
+   * @param ordering - Comma-separated fields, `-` prefix = DESC.
+   * @returns Array of {@link SortOptions}.
+   */
+  private parseOrdering(ordering: string): SortOptions[] {
+    const fields = ordering.split(',');
+    const sortOptions: SortOptions[] = [];
+
+    for (const field of fields) {
+      const trimmed = field.trim();
+      if (!trimmed) continue;
+
+      const isDescending = trimmed.startsWith('-');
+      const fieldName = isDescending ? trimmed.substring(1) : trimmed;
+
+      // Check if field is allowed
+      if (
+        this.orderingFields.length === 0 ||
+        this.orderingFields.includes(fieldName)
+      ) {
+        sortOptions.push({
+          field: fieldName,
+          order: isDescending ? 'DESC' : 'ASC',
+        });
+      }
+    }
+
+    return sortOptions;
+  }
+}
+
+/**
+ * Composite filter backend that chains multiple backends sequentially.
+ *
+ * Each backend’s output becomes the next backend’s input, allowing
+ * independent concerns (filtering, search, ordering) to be composed.
+ *
+ * @class CompositeFilterBackend
+ * @extends {QueryFilterBackend}
+ */
+@Injectable()
+export class CompositeFilterBackend extends QueryFilterBackend {
+  /** Ordered list of child backends */
+  private backends: QueryFilterBackend[] = [];
+
+  /**
+   * @param backends - Initial array of backends to chain.
+   */
+  constructor(backends: QueryFilterBackend[]) {
+    super();
     this.backends = backends;
   }
 
-  filterQueryset<T>(
+  /**
+   * Run each child backend in sequence over the queryset.
+   *
+   * @param request - The incoming Express request.
+   * @param queryset - Current query options.
+   * @param view - Optional view reference forwarded to children.
+   * @returns The fully augmented query options.
+   */
+  override filterQueryset(
     request: Request,
     queryset: QueryOptions = {},
-    view?: any
+    view?: unknown,
   ): QueryOptions {
     let result = { ...queryset };
 
@@ -313,12 +466,22 @@ export class CompositeFilterBackend extends QueryFilterBackend<any> {
     return result;
   }
 
-  addBackend(backend: QueryFilterBackend<any>): void {
+  /**
+   * Append a backend to the chain.
+   *
+   * @param backend - Backend to add.
+   */
+  addBackend(backend: QueryFilterBackend): void {
     this.backends.push(backend);
   }
 
+  /**
+   * Remove a backend from the chain.
+   *
+   * @param backend - Backend to remove.
+   */
   removeBackend(backend: IFilterBackend): void {
-    const index = this.backends.indexOf(backend);
+    const index = this.backends.indexOf(backend as QueryFilterBackend);
     if (index > -1) {
       this.backends.splice(index, 1);
     }

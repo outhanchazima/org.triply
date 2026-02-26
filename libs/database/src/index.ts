@@ -69,8 +69,9 @@ export * from './lib/repositories/base-mongo.repository';
  * @description Advanced query filtering, parsing, and decoration utilities
  */
 export * from './lib/utils/query-filter.parser';
+export * from './lib/utils/pipeline.builder';
 export * from './lib/filters/query-filter.backend';
+export * from './lib/filters/filterset';
 export * from './lib/decorators/query-filters.decorator';
+export * from './lib/decorators/api-filters.decorator';
 export * from './lib/interceptors/query-filter.interceptor';
-
-export * from './lib/database.module';

@@ -1,3 +1,14 @@
+/**
+ * @fileoverview Central connection manager for all database types
+ * @module database/services
+ * @description Maintains a registry of all active database connections
+ * (PostgreSQL, MongoDB, Redis), tracks per-connection metrics, and
+ * orchestrates distributed transactions spanning multiple databases.
+ *
+ * @author Outhan Chazima
+ * @version 1.0.0
+ */
+
 import { Injectable, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { Connection } from 'mongoose';
@@ -8,26 +19,69 @@ import {
 } from '../interfaces/database.interface';
 import { randomUUID } from 'node:crypto';
 
+/**
+ * Internal representation of a distributed transaction.
+ * @interface DistributedTransaction
+ */
 interface DistributedTransaction {
+  /** Unique transaction identifier (UUID) */
   id: string;
+  /** Map of `type:name` keys to database-specific transaction objects */
   connections: Map<string, any>;
+  /** Current transaction lifecycle status */
   status: 'pending' | 'committed' | 'rolled_back';
+  /** Timestamp when the transaction was created */
   createdAt: Date;
 }
 
+/**
+ * Central registry and manager for all database connections.
+ *
+ * @class ConnectionManagerService
+ * @description Tracks connection state, aggregates per-connection performance
+ * metrics (total queries, average query time, slow-query count), and provides
+ * a two-phase-commit–style API for distributed transactions across PostgreSQL
+ * and MongoDB connections.
+ *
+ * @example
+ * ```typescript
+ * // Register and check health
+ * await connectionManager.registerPostgresConnection('main');
+ * const healthy = await connectionManager.isHealthy('main', 'postgres');
+ *
+ * // Distributed transaction
+ * const txId = await connectionManager.beginDistributedTransaction();
+ * connectionManager.addToDistributedTransaction(txId, 'main', 'postgres', pgQR);
+ * await connectionManager.commitDistributedTransaction(txId);
+ * ```
+ */
 @Injectable()
 export class ConnectionManagerService {
+  /** Logger scoped to this service */
   private readonly logger = new Logger(ConnectionManagerService.name);
+
+  /** Map of `type:name` → {@link DatabaseConnection} */
   private readonly connections: Map<string, DatabaseConnection> = new Map();
+
+  /** Map of `type:name` → {@link ConnectionMetrics} */
   private readonly connectionMetrics: Map<string, ConnectionMetrics> =
     new Map();
+
+  /** Map of transaction ID → {@link DistributedTransaction} */
   private readonly distributedTransactions: Map<
     string,
     DistributedTransaction
   > = new Map();
 
   /**
-   * Register a PostgreSQL connection
+   * Register a PostgreSQL connection in the central registry.
+   *
+   * The actual `DataSource` is managed by the TypeORM module; this method
+   * creates the bookkeeping entry and initialises metrics.
+   *
+   * @param name - Connection name.
+   * @returns Always `null` — the `PostgresService` holds the real `DataSource`.
+   * @throws Error if registration fails.
    */
   async registerPostgresConnection(name: string): Promise<DataSource | null> {
     try {
@@ -58,7 +112,14 @@ export class ConnectionManagerService {
   }
 
   /**
-   * Register a MongoDB connection
+   * Register a MongoDB connection in the central registry.
+   *
+   * The actual Mongoose `Connection` is managed by the Mongoose module;
+   * this method creates the bookkeeping entry and initialises metrics.
+   *
+   * @param name - Connection name.
+   * @returns Always `null` — the `MongoService` holds the real `Connection`.
+   * @throws Error if registration fails.
    */
   async registerMongoConnection(name: string): Promise<Connection | null> {
     try {
@@ -88,7 +149,14 @@ export class ConnectionManagerService {
   }
 
   /**
-   * Register a Redis connection
+   * Register a Redis connection in the central registry.
+   *
+   * Unlike Postgres/Mongo, the Redis client is passed in directly because
+   * it is created by the {@link RedisService}. Event listeners are
+   * attached to track ready/close/error states.
+   *
+   * @param name - Connection name.
+   * @param client - The `ioredis` client instance.
    */
   registerRedisConnection(name: string, client: Redis): void {
     const connection: DatabaseConnection = {
@@ -121,7 +189,13 @@ export class ConnectionManagerService {
   }
 
   /**
-   * Get a specific connection
+   * Retrieve a specific connection wrapper by name and type.
+   *
+   * Automatically updates `lastUsed` on access.
+   *
+   * @param name - Connection name.
+   * @param type - Database type.
+   * @returns The {@link DatabaseConnection} or `null` if not found.
    */
   getConnection(
     name: string,
@@ -138,14 +212,19 @@ export class ConnectionManagerService {
   }
 
   /**
-   * Get all connections
+   * Retrieve all registered connections.
+   *
+   * @returns Array of all {@link DatabaseConnection} objects.
    */
   getAllConnections(): DatabaseConnection[] {
     return Array.from(this.connections.values());
   }
 
   /**
-   * Get connections by type
+   * Retrieve all connections of a specific database type.
+   *
+   * @param type - Database type to filter by.
+   * @returns Array of matching {@link DatabaseConnection} objects.
    */
   getConnectionsByType(
     type: 'postgres' | 'mongodb' | 'redis',
@@ -156,7 +235,17 @@ export class ConnectionManagerService {
   }
 
   /**
-   * Update connection metrics
+   * Incrementally update performance metrics for a connection.
+   *
+   * Called after each query by the individual database services.
+   *
+   * @param name - Connection name.
+   * @param type - Database type.
+   * @param update - Partial update descriptor.
+   * @param update.query - Whether this was a query event.
+   * @param update.failed - Whether the query failed.
+   * @param update.queryTime - Execution time in milliseconds.
+   * @param update.slow - Whether the query exceeded the slow threshold.
    */
   updateMetrics(
     name: string,
@@ -197,7 +286,11 @@ export class ConnectionManagerService {
   }
 
   /**
-   * Get connection metrics
+   * Retrieve accumulated metrics for a specific connection.
+   *
+   * @param name - Connection name.
+   * @param type - Database type.
+   * @returns The {@link ConnectionMetrics} object, or `null` if not found.
    */
   getMetrics(
     name: string,
@@ -208,7 +301,9 @@ export class ConnectionManagerService {
   }
 
   /**
-   * Initialize metrics object
+   * Create a zeroed-out {@link ConnectionMetrics} instance.
+   *
+   * @returns Fresh metrics with all counters at zero.
    */
   private initializeMetrics(): ConnectionMetrics {
     return {
@@ -223,7 +318,14 @@ export class ConnectionManagerService {
   }
 
   /**
-   * Check if a connection is healthy
+   * Perform a lightweight health check on a specific connection.
+   *
+   * For Redis, issues a `PING` command. For Postgres/MongoDB the
+   * check is delegated to their respective services.
+   *
+   * @param name - Connection name.
+   * @param type - Database type.
+   * @returns `true` if the connection appears healthy.
    */
   async isHealthy(
     name: string,
@@ -262,12 +364,23 @@ export class ConnectionManagerService {
   }
 
   /**
-   * Get connection pool statistics
+   * Retrieve connection-pool statistics.
+   *
+   * For Redis, fetches the `clients` section from `INFO`. For
+   * Postgres/MongoDB, returns the connection name and type.
+   *
+   * @param name - Connection name.
+   * @param type - Database type.
+   * @returns A stats object, or `null` if the connection doesn't exist.
    */
   async getPoolStats(
     name: string,
     type: 'postgres' | 'mongodb' | 'redis',
-  ): Promise<any> {
+  ): Promise<{
+    type: string;
+    name: string;
+    info?: string;
+  } | null> {
     const connection = this.getConnection(name, type);
 
     if (!connection) {
@@ -276,18 +389,14 @@ export class ConnectionManagerService {
 
     switch (type) {
       case 'postgres':
-        // Would need to get stats from TypeORM DataSource
         return {
           type: 'postgres',
           name,
-          // Additional stats would come from DataSource
         };
       case 'mongodb':
-        // Would need to get stats from Mongoose Connection
         return {
           type: 'mongodb',
           name,
-          // Additional stats would come from Connection
         };
       case 'redis': {
         const redis = connection.connection as Redis;
@@ -304,7 +413,13 @@ export class ConnectionManagerService {
   }
 
   /**
-   * Begin a distributed transaction
+   * Begin a new distributed transaction.
+   *
+   * Creates a unique transaction ID and prepares a holder that database-
+   * specific transaction objects can be attached to via
+   * {@link addToDistributedTransaction}.
+   *
+   * @returns The UUID of the new distributed transaction.
    */
   async beginDistributedTransaction(): Promise<string> {
     const transactionId = randomUUID();
@@ -324,7 +439,14 @@ export class ConnectionManagerService {
   }
 
   /**
-   * Add a connection to a distributed transaction
+   * Enlist a database-specific transaction object into a distributed transaction.
+   *
+   * @param transactionId - The distributed transaction ID.
+   * @param connectionName - Connection name.
+   * @param connectionType - Database type identifier.
+   * @param transactionObject - The database-specific transaction handle
+   *   (e.g. TypeORM `QueryRunner` or Mongoose `ClientSession`).
+   * @throws Error if the transaction is not found or not in `pending` state.
    */
   addToDistributedTransaction(
     transactionId: string,
@@ -351,7 +473,13 @@ export class ConnectionManagerService {
   }
 
   /**
-   * Commit a distributed transaction
+   * Commit all enlisted connections in a distributed transaction.
+   *
+   * If any commit fails, an automatic rollback is attempted for all
+   * connections. The transaction record is cleaned up after 60 seconds.
+   *
+   * @param transactionId - The distributed transaction ID.
+   * @throws Error if the transaction is not found, not pending, or commit fails.
    */
   async commitDistributedTransaction(transactionId: string): Promise<void> {
     const transaction = this.distributedTransactions.get(transactionId);
@@ -402,7 +530,13 @@ export class ConnectionManagerService {
   }
 
   /**
-   * Rollback a distributed transaction
+   * Roll back all enlisted connections in a distributed transaction.
+   *
+   * Idempotent — calling on an already-rolled-back transaction is a no-op.
+   * The transaction record is cleaned up after 60 seconds.
+   *
+   * @param transactionId - The distributed transaction ID.
+   * @throws Error if the transaction is not found.
    */
   async rollbackDistributedTransaction(transactionId: string): Promise<void> {
     const transaction = this.distributedTransactions.get(transactionId);
@@ -462,7 +596,11 @@ export class ConnectionManagerService {
   }
 
   /**
-   * Clean up old distributed transactions
+   * Clean up stale distributed transactions.
+   *
+   * Transactions older than 5 minutes that are still `pending` are
+   * automatically rolled back. Completed transactions are simply
+   * removed from the registry.
    */
   cleanupOldTransactions(): void {
     const now = new Date();
@@ -489,7 +627,10 @@ export class ConnectionManagerService {
   }
 
   /**
-   * Get all distributed transactions
+   * List all active or recently completed distributed transactions.
+   *
+   * @returns Array of transaction summaries with id, status, connection
+   *   count, and creation timestamp.
    */
   getDistributedTransactions(): Array<{
     id: string;

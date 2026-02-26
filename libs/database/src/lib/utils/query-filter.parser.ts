@@ -91,6 +91,23 @@ export interface ParsedQueryFilter {
 }
 
 /**
+ * Configuration options for the QueryFilterParser
+ * @interface QueryFilterParserOptions
+ */
+export interface QueryFilterParserOptions {
+  /** Default page size for pagination (default: 20) */
+  defaultPageSize?: number;
+  /** Maximum allowed page size (default: 100) */
+  maxPageSize?: number;
+  /** Fields to include in full-text search */
+  searchFields?: string[];
+  /** Fields allowed for filtering (null = all allowed) */
+  allowedFields?: string[];
+  /** Fields excluded from filtering */
+  excludedFields?: string[];
+}
+
+/**
  * Parse advanced query filter parameters
  * Examples:
  * - name__icontains=john
@@ -98,7 +115,10 @@ export interface ParsedQueryFilter {
  */
 export class QueryFilterParser {
   /** Parser configuration options */
-  private options: QueryFilterParserOptions;
+  private options: Required<
+    Pick<QueryFilterParserOptions, 'defaultPageSize' | 'maxPageSize'>
+  > &
+    QueryFilterParserOptions;
 
   /**
    * Creates an instance of QueryFilterParser
@@ -110,6 +130,14 @@ export class QueryFilterParser {
       maxPageSize: 100,
       ...options,
     };
+  }
+
+  /**
+   * Update search fields dynamically
+   * @param fields - Array of field names to search
+   */
+  setSearchFields(fields: string[]): void {
+    this.options.searchFields = fields;
   }
 
   /**
@@ -151,6 +179,8 @@ export class QueryFilterParser {
       }
 
       // Parse field filters
+      if (!this.isFieldAllowed(key.split('__')[0])) continue;
+
       const filter = this.parseFieldFilter(key, value);
       if (filter) {
         result.filters.push(filter);
@@ -158,13 +188,15 @@ export class QueryFilterParser {
     }
 
     // Handle pagination
-    const page = params.page ? parseInt(params.page as string, 10) || 1 : 1;
+    const page = params.page ? this.parseNumber(params.page, 1) : 1;
     const pageSize =
       params.page_size || params.pageSize
         ? Math.min(
-            parseInt((params.page_size || params.pageSize) as string, 10) ||
+            this.parseNumber(
+              (params.page_size || params.pageSize)!,
               this.options.defaultPageSize,
-            this.options.maxPageSize
+            ),
+            this.options.maxPageSize,
           )
         : this.options.defaultPageSize;
 
@@ -181,7 +213,7 @@ export class QueryFilterParser {
    */
   private parseFieldFilter(
     key: string,
-    value: string | string[]
+    value: string | string[],
   ): FilterOptions | null {
     // Split by __ to get field and lookup
     const parts = key.split('__');
@@ -319,7 +351,7 @@ export class QueryFilterParser {
  */
 export function parseQueryString(
   queryString: string,
-  options?: QueryFilterParserOptions
+  options?: QueryFilterParserOptions,
 ): ParsedQueryFilter {
   const params: QueryFilterParams = {};
   const urlParams = new URLSearchParams(queryString);
@@ -358,7 +390,7 @@ export function buildQueryString(options: {
     for (const filter of options.filters) {
       const lookup =
         Object.entries(QUERY_LOOKUPS).find(
-          ([, value]) => value === filter.operator
+          ([, value]) => value === filter.operator,
         )?.[0] || 'exact';
 
       const key =

@@ -1,6 +1,19 @@
-import { Injectable, Logger } from '@nestjs/common';
+/**
+ * @fileoverview Database health monitoring and recovery service
+ * @module database/services
+ * @description Periodically checks the health of every registered database
+ * connection (PostgreSQL, MongoDB, Redis), records results in a bounded
+ * history, calculates uptime and latency statistics, and provides a
+ * recovery mechanism for unhealthy connections.
+ *
+ * @author Outhan Chazima
+ * @version 1.0.0
+ */
+
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import {
   HealthCheckResult,
+  ConnectionMetrics,
   DatabaseConnection,
 } from '../interfaces/database.interface';
 import { ConnectionManagerService } from './connection-manager.service';
@@ -8,34 +21,86 @@ import { PostgresService } from './postgres.service';
 import { MongoService } from './mongo.service';
 import { RedisService } from './redis.service';
 
+/**
+ * Configuration for periodic health checks.
+ * @interface HealthCheckConfig
+ */
 interface HealthCheckConfig {
+  /** Interval between health checks in milliseconds (default 30 000) */
   interval: number;
+  /** Timeout per individual connection check in milliseconds (default 5 000) */
   timeout: number;
+  /** Number of retry attempts before declaring a connection unhealthy */
   retries: number;
 }
 
+/**
+ * Service for monitoring database connection health and attempting recovery.
+ *
+ * @class DatabaseHealthService
+ * @implements {OnModuleDestroy}
+ * @description Runs periodic health checks across all registered connections,
+ * stores historical results for uptime/latency reporting, and exposes a
+ * recovery API that can be triggered manually or by automated alerting.
+ *
+ * @example
+ * ```typescript
+ * await healthService.startMonitoring({ interval: 15000 });
+ * const report = healthService.exportHealthReport();
+ * const recovered = await healthService.attemptRecovery('main', 'postgres');
+ * ```
+ */
 @Injectable()
-export class DatabaseHealthService {
+export class DatabaseHealthService implements OnModuleDestroy {
+  /** Logger scoped to this service */
   private readonly logger = new Logger(DatabaseHealthService.name);
+
+  /** Handle for the periodic health-check interval */
   private healthCheckInterval: NodeJS.Timeout | null = null;
+
+  /** Map of key (e.g. `'overall'`) → bounded array of health-check results */
   private readonly healthHistory: Map<string, HealthCheckResult[]> = new Map();
+
+  /** Maximum number of results kept per history key */
   private readonly maxHistorySize = 100;
 
+  /** Active health-check configuration */
   private readonly config: HealthCheckConfig = {
     interval: 30000, // 30 seconds
     timeout: 5000, // 5 seconds
     retries: 3,
   };
 
+  /**
+   * Creates an instance of DatabaseHealthService.
+   *
+   * @param connectionManager - Central connection registry.
+   * @param postgresService - PostgreSQL service for health pings.
+   * @param mongoService - MongoDB service for health pings.
+   * @param redisService - Redis service for health pings.
+   */
   constructor(
     private readonly connectionManager: ConnectionManagerService,
     private readonly postgresService: PostgresService,
     private readonly mongoService: MongoService,
-    private readonly redisService: RedisService
+    private readonly redisService: RedisService,
   ) {}
 
   /**
-   * Start health monitoring
+   * NestJS lifecycle hook — stops monitoring on module teardown.
+   */
+  async onModuleDestroy(): Promise<void> {
+    await this.stopMonitoring();
+  }
+
+  /**
+   * Start periodic health monitoring.
+   *
+   * Performs an immediate health check, then schedules recurring checks
+   * at the configured interval. Idempotent — calling when already running
+   * logs a warning and returns.
+   *
+   * @param config - Optional partial overrides for the default config.
    */
   async startMonitoring(config?: Partial<HealthCheckConfig>): Promise<void> {
     if (this.healthCheckInterval) {
@@ -63,7 +128,7 @@ export class DatabaseHealthService {
   }
 
   /**
-   * Stop health monitoring
+   * Stop periodic health monitoring and clear the interval.
    */
   async stopMonitoring(): Promise<void> {
     if (this.healthCheckInterval) {
@@ -74,13 +139,19 @@ export class DatabaseHealthService {
   }
 
   /**
-   * Perform health check on all connections
+   * Perform a health check on **all** registered connections.
+   *
+   * Checks run in parallel. The overall status is derived from individual
+   * results via {@link determineOverallStatus}. The result is stored in
+   * history under the key `'overall'`.
+   *
+   * @returns A {@link HealthCheckResult} containing per-connection statuses.
    */
   async checkHealth(): Promise<HealthCheckResult> {
     const startTime = Date.now();
     const connections = this.connectionManager.getAllConnections();
     const healthChecks = await Promise.all(
-      connections.map((conn) => this.checkConnectionHealth(conn))
+      connections.map((conn) => this.checkConnectionHealth(conn)),
     );
 
     const overallStatus = this.determineOverallStatus(healthChecks);
@@ -98,7 +169,7 @@ export class DatabaseHealthService {
     if (overallStatus !== 'healthy') {
       this.logger.warn(`Database health check: ${overallStatus}`, {
         unhealthyConnections: healthChecks.filter(
-          (c) => c.status !== 'connected'
+          (c) => c.status !== 'connected',
         ),
       });
     }
@@ -110,7 +181,13 @@ export class DatabaseHealthService {
   }
 
   /**
-   * Check health of a specific connection
+   * Check the health of a single database connection.
+   *
+   * Dispatches to the appropriate type-specific check method and measures
+   * latency. Returns a structured result including status and optional error.
+   *
+   * @param connection - The connection to check.
+   * @returns Per-connection health status with latency and metrics.
    */
   private async checkConnectionHealth(connection: DatabaseConnection): Promise<{
     name: string;
@@ -118,7 +195,7 @@ export class DatabaseHealthService {
     status: 'connected' | 'disconnected' | 'error';
     latency?: number;
     error?: string;
-    metrics?: any;
+    metrics?: ConnectionMetrics;
   }> {
     const startTime = Date.now();
 
@@ -147,19 +224,22 @@ export class DatabaseHealthService {
         latency,
         metrics: connection.metrics,
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       return {
         name: connection.name,
         type: connection.type,
         status: 'error',
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
         latency: Date.now() - startTime,
       };
     }
   }
 
   /**
-   * Check PostgreSQL connection health
+   * Check PostgreSQL health by executing `SELECT 1` with a timeout.
+   *
+   * @param name - Connection name.
+   * @returns `true` if the query completes within the timeout.
    */
   private async checkPostgresHealth(name: string): Promise<boolean> {
     try {
@@ -172,7 +252,7 @@ export class DatabaseHealthService {
       const timeoutPromise = new Promise<boolean>((_, reject) => {
         setTimeout(
           () => reject(new Error('Health check timeout')),
-          this.config.timeout
+          this.config.timeout,
         );
       });
 
@@ -186,7 +266,10 @@ export class DatabaseHealthService {
   }
 
   /**
-   * Check MongoDB connection health
+   * Check MongoDB health by issuing an admin `ping` with a timeout.
+   *
+   * @param name - Connection name.
+   * @returns `true` if the ping succeeds within the timeout.
    */
   private async checkMongoHealth(name: string): Promise<boolean> {
     try {
@@ -199,12 +282,12 @@ export class DatabaseHealthService {
       const timeoutPromise = new Promise<boolean>((_, reject) => {
         setTimeout(
           () => reject(new Error('Health check timeout')),
-          this.config.timeout
+          this.config.timeout,
         );
       });
 
-      const pingPromise = connection.db
-        .admin()
+      const pingPromise = connection
+        .db!.admin()
         .ping()
         .then(() => true);
 
@@ -216,7 +299,10 @@ export class DatabaseHealthService {
   }
 
   /**
-   * Check Redis connection health
+   * Check Redis health by issuing a `PING` command with a timeout.
+   *
+   * @param name - Connection name.
+   * @returns `true` if the response is `'PONG'` within the timeout.
    */
   private async checkRedisHealth(name: string): Promise<boolean> {
     try {
@@ -229,7 +315,7 @@ export class DatabaseHealthService {
       const timeoutPromise = new Promise<boolean>((_, reject) => {
         setTimeout(
           () => reject(new Error('Health check timeout')),
-          this.config.timeout
+          this.config.timeout,
         );
       });
 
@@ -243,14 +329,21 @@ export class DatabaseHealthService {
   }
 
   /**
-   * Determine overall health status
+   * Derive an overall health status from individual connection results.
+   *
+   * - `'healthy'` — all connections are connected
+   * - `'unhealthy'` — no connections are connected or all errored
+   * - `'degraded'` — some but not all connections are connected
+   *
+   * @param connections - Array of per-connection statuses.
+   * @returns The aggregate health status.
    */
   private determineOverallStatus(
-    connections: Array<{ status: 'connected' | 'disconnected' | 'error' }>
+    connections: Array<{ status: 'connected' | 'disconnected' | 'error' }>,
   ): 'healthy' | 'degraded' | 'unhealthy' {
     const total = connections.length;
     const connected = connections.filter(
-      (c) => c.status === 'connected'
+      (c) => c.status === 'connected',
     ).length;
     const errors = connections.filter((c) => c.status === 'error').length;
 
@@ -264,7 +357,10 @@ export class DatabaseHealthService {
   }
 
   /**
-   * Add result to history
+   * Append a health-check result to the bounded history for a given key.
+   *
+   * @param key - History key (e.g. `'overall'`).
+   * @param result - The health-check result to store.
    */
   private addToHistory(key: string, result: HealthCheckResult): void {
     const history = this.healthHistory.get(key) || [];
@@ -279,7 +375,11 @@ export class DatabaseHealthService {
   }
 
   /**
-   * Get health history
+   * Retrieve recent health-check history.
+   *
+   * @param key - History key (default `'overall'`).
+   * @param limit - Maximum number of entries to return (default `10`).
+   * @returns Array of the most recent {@link HealthCheckResult} entries.
    */
   getHealthHistory(key = 'overall', limit = 10): HealthCheckResult[] {
     const history = this.healthHistory.get(key) || [];
@@ -287,7 +387,11 @@ export class DatabaseHealthService {
   }
 
   /**
-   * Get health statistics
+   * Calculate aggregate health statistics from history.
+   *
+   * @param key - History key (default `'overall'`).
+   * @returns Statistics including total checks, healthy/degraded/unhealthy
+   *   counts, average latency, and uptime percentage.
    */
   getHealthStatistics(key = 'overall'): {
     totalChecks: number;
@@ -335,11 +439,16 @@ export class DatabaseHealthService {
   }
 
   /**
-   * Get connection-specific health statistics
+   * Get health statistics for a specific named connection.
+   *
+   * @param connectionName - The connection name.
+   * @param connectionType - The database type.
+   * @returns Per-connection health info including current status, average
+   *   latency, uptime percentage, and recent error messages.
    */
   getConnectionHealthStats(
     connectionName: string,
-    connectionType: string
+    connectionType: string,
   ): {
     isHealthy: boolean;
     lastCheck?: Date;
@@ -352,10 +461,10 @@ export class DatabaseHealthService {
     const connectionHistory = history
       .map((h) =>
         h.connections.find(
-          (c) => c.name === connectionName && c.type === connectionType
-        )
+          (c) => c.name === connectionName && c.type === connectionType,
+        ),
       )
-      .filter(Boolean);
+      .filter((c): c is NonNullable<typeof c> => c !== undefined && c !== null);
 
     if (connectionHistory.length === 0) {
       return {
@@ -366,13 +475,13 @@ export class DatabaseHealthService {
       };
     }
 
-    const latest = connectionHistory[connectionHistory.length - 1]!;
+    const latest = connectionHistory[connectionHistory.length - 1];
     const connected = connectionHistory.filter(
-      (c) => c.status === 'connected'
+      (c) => c.status === 'connected',
     ).length;
     const totalLatency = connectionHistory.reduce(
       (sum, c) => sum + (c.latency || 0),
-      0
+      0,
     );
     const errors = connectionHistory
       .filter((c) => c.error)
@@ -389,14 +498,22 @@ export class DatabaseHealthService {
   }
 
   /**
-   * Perform connection recovery
+   * Attempt to recover an unhealthy connection.
+   *
+   * Executes a lightweight operation on the connection to trigger
+   * internal reconnection logic (e.g. TypeORM auto-reconnect, Mongoose
+   * reconnect, or ioredis auto-reconnect).
+   *
+   * @param connectionName - The connection name.
+   * @param connectionType - The database type.
+   * @returns `true` if the recovery probe succeeded.
    */
   async attemptRecovery(
     connectionName: string,
-    connectionType: string
+    connectionType: string,
   ): Promise<boolean> {
     this.logger.log(
-      `Attempting recovery for ${connectionType}:${connectionName}`
+      `Attempting recovery for ${connectionType}:${connectionName}`,
     );
 
     try {
@@ -407,14 +524,14 @@ export class DatabaseHealthService {
           await this.postgresService.executeRawQuery(
             connectionName,
             'SELECT 1',
-            []
+            [],
           );
           break;
         case 'mongodb': {
           // MongoDB connections are managed by Mongoose
           // We can try to execute a simple operation to trigger reconnection
           const mongoConn = this.mongoService.getConnection(connectionName);
-          await mongoConn.db.admin().ping();
+          await mongoConn.db!.admin().ping();
           break;
         }
         case 'redis': {
@@ -427,29 +544,34 @@ export class DatabaseHealthService {
       }
 
       this.logger.log(
-        `Recovery successful for ${connectionType}:${connectionName}`
+        `Recovery successful for ${connectionType}:${connectionName}`,
       );
       return true;
     } catch (error) {
       this.logger.error(
         `Recovery failed for ${connectionType}:${connectionName}`,
-        error
+        error,
       );
       return false;
     }
   }
 
   /**
-   * Export health report
+   * Export a comprehensive health report.
+   *
+   * Includes the most recent overall status, aggregate statistics, and
+   * per-connection health stats suitable for dashboards or alerting.
+   *
+   * @returns A structured health report.
    */
   exportHealthReport(): {
     timestamp: Date;
     currentStatus: HealthCheckResult;
-    statistics: any;
+    statistics: ReturnType<DatabaseHealthService['getHealthStatistics']>;
     connectionStats: Array<{
       name: string;
       type: string;
-      stats: any;
+      stats: ReturnType<DatabaseHealthService['getConnectionHealthStats']>;
     }>;
   } {
     const currentStatus =

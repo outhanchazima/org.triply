@@ -6,7 +6,7 @@
  * and bulk operations.
  */
 
-import { Repository, EntityTarget, QueryRunner } from 'typeorm';
+import { Repository, EntityTarget, QueryRunner, ObjectLiteral } from 'typeorm';
 import {
   IBaseRepository,
   QueryOptions,
@@ -46,7 +46,9 @@ import { PostgresService } from '../services/postgres.service';
  * }
  * ```
  */
-export class BasePostgresRepository<T> implements IBaseRepository<T> {
+export class BasePostgresRepository<
+  T extends ObjectLiteral,
+> implements IBaseRepository<T> {
   /** TypeORM repository instance */
   protected repository: Repository<T>;
 
@@ -65,13 +67,13 @@ export class BasePostgresRepository<T> implements IBaseRepository<T> {
   constructor(
     private readonly postgresService: PostgresService,
     connectionName: string,
-    entity: EntityTarget<T>
+    entity: EntityTarget<T>,
   ) {
     this.connectionName = connectionName;
     this.entity = entity;
     this.repository = this.postgresService.getRepository(
       connectionName,
-      entity
+      entity,
     );
   }
 
@@ -90,7 +92,7 @@ export class BasePostgresRepository<T> implements IBaseRepository<T> {
    */
   async findOne(
     id: string | number,
-    options?: QueryOptions
+    options?: QueryOptions,
   ): Promise<T | null> {
     const queryBuilder = this.repository.createQueryBuilder('entity');
     queryBuilder.where('entity.id = :id', { id });
@@ -110,143 +112,186 @@ export class BasePostgresRepository<T> implements IBaseRepository<T> {
   }
 
   /**
-   * Find many records with pagination
+   * Find many records with advanced filtering, sorting, pagination, and search.
+   *
+   * Delegates to {@link PostgresService.find} which builds a TypeORM query
+   * from the provided options.
+   *
+   * @param options - Query options (filter, sort, page, limit, search, select, populate).
+   * @returns Paginated result containing `data`, `pagination` metadata, and `meta`.
    */
   async findMany(options?: QueryOptions): Promise<PaginationResult<T>> {
     return this.postgresService.find(this.connectionName, this.entity, options);
   }
 
   /**
-   * Create a new record
+   * Create and persist a new entity.
+   *
+   * @param data - Partial entity data.
+   * @param options - Optional query options (e.g. `transaction`).
+   * @returns The newly created entity.
    */
   async create(data: Partial<T>, options?: QueryOptions): Promise<T> {
     return this.postgresService.create(
       this.connectionName,
       this.entity,
       data,
-      options
+      options,
     );
   }
 
   /**
-   * Create many records
+   * Bulk-insert multiple entities.
+   *
+   * @param data - Array of partial entity data.
+   * @param options - Optional bulk operation options.
+   * @returns A {@link BulkWriteResult} with counts and any errors.
    */
   async createMany(
     data: Partial<T>[],
-    options?: BulkOperationOptions
+    options?: BulkOperationOptions,
   ): Promise<BulkWriteResult> {
     return this.postgresService.createMany(
       this.connectionName,
       this.entity,
       data,
-      options as QueryOptions
+      options as QueryOptions,
     );
   }
 
   /**
-   * Update a record
+   * Update an existing entity by ID.
+   *
+   * @param id - Entity ID.
+   * @param data - Partial update payload.
+   * @param options - Optional query options (e.g. `transaction`).
+   * @returns The updated entity.
    */
   async update(
     id: string | number,
     data: Partial<T>,
-    options?: QueryOptions
+    options?: QueryOptions,
   ): Promise<T> {
     return this.postgresService.update(
       this.connectionName,
       this.entity,
       id,
       data,
-      options
+      options,
     );
   }
 
   /**
-   * Update many records
+   * Update all entities matching the given filters.
+   *
+   * @param filter - Array of filter conditions.
+   * @param data - Partial update payload.
+   * @param _options - Reserved for future use.
+   * @returns Number of entities updated.
    */
   async updateMany(
     filter: FilterOptions[],
     data: Partial<T>,
-    options?: QueryOptions
+    _options?: QueryOptions,
   ): Promise<number> {
     return this.postgresService.updateMany(
       this.connectionName,
       this.entity,
       filter,
       data,
-      options
     );
   }
 
   /**
-   * Delete a record
+   * Delete a single entity by ID.
+   *
+   * @param id - Entity ID.
+   * @param options - Optional query options (e.g. `transaction`).
+   * @returns `true` if the entity was deleted.
    */
   async delete(id: string | number, options?: QueryOptions): Promise<boolean> {
     return this.postgresService.delete(
       this.connectionName,
       this.entity,
       id,
-      options
+      options,
     );
   }
 
   /**
-   * Delete many records
+   * Delete all entities matching the given filters.
+   *
+   * @param filter - Array of filter conditions.
+   * @param _options - Reserved for future use.
+   * @returns Number of entities deleted.
    */
   async deleteMany(
     filter: FilterOptions[],
-    options?: QueryOptions
+    _options?: QueryOptions,
   ): Promise<number> {
     return this.postgresService.deleteMany(
       this.connectionName,
       this.entity,
       filter,
-      options
     );
   }
 
   /**
-   * Count records
+   * Count entities matching optional filters.
+   *
+   * @param filter - Optional array of filter conditions.
+   * @param _options - Reserved for future use.
+   * @returns The total count.
    */
   async count(
     filter?: FilterOptions[],
-    options?: QueryOptions
+    _options?: QueryOptions,
   ): Promise<number> {
-    return this.postgresService.count(
-      this.connectionName,
-      this.entity,
-      filter,
-      options
-    );
+    return this.postgresService.count(this.connectionName, this.entity, filter);
   }
 
   /**
-   * Check if records exist
+   * Check whether at least one entity matches the given filters.
+   *
+   * @param filter - Array of filter conditions.
+   * @param options - Optional query options.
+   * @returns `true` if one or more matching entities exist.
    */
   async exists(
     filter: FilterOptions[],
-    options?: QueryOptions
+    options?: QueryOptions,
   ): Promise<boolean> {
     const count = await this.count(filter, options);
     return count > 0;
   }
 
   /**
-   * Perform aggregation
+   * Perform an aggregation query (groupBy, sum, avg, min, max, count).
+   *
+   * @param options - Aggregation configuration.
+   * @returns An {@link AggregationResult} with grouped data and execution time.
    */
   async aggregate(options: AggregationOptions): Promise<AggregationResult> {
     return this.postgresService.aggregate(
       this.connectionName,
       this.entity,
-      options
+      options,
     );
   }
 
   /**
-   * Search records
+   * Search entities using full-text or field-based search.
+   *
+   * Merges `searchOptions` into `queryOptions.search` and delegates to
+   * {@link findMany}.
+   *
+   * @param searchOptions - Search query, fields, and options.
+   * @param queryOptions - Additional query options (sort, pagination, etc.).
+   * @returns Paginated search results.
    */
   async search(
     searchOptions: SearchOptions,
-    queryOptions?: QueryOptions
+    queryOptions?: QueryOptions,
   ): Promise<PaginationResult<T>> {
     const options: QueryOptions = {
       ...queryOptions,
@@ -256,22 +301,32 @@ export class BasePostgresRepository<T> implements IBaseRepository<T> {
   }
 
   /**
-   * Execute in transaction
+   * Execute a callback within a database transaction.
+   *
+   * @typeParam R - Return type of the transaction callback.
+   * @param fn - Async function receiving a TypeORM `QueryRunner`.
+   * @param options - Optional transaction options (e.g. isolation level).
+   * @returns The value returned by `fn`.
    */
   async transaction<R>(
     fn: (queryRunner: QueryRunner) => Promise<R>,
-    options?: TransactionOptions
+    options?: TransactionOptions,
   ): Promise<R> {
     return this.postgresService.transaction(this.connectionName, fn, options);
   }
 
   /**
-   * Find or create a record
+   * Find an existing entity or create a new one if none matches.
+   *
+   * @param filter - Filter conditions to locate an existing entity.
+   * @param data - Data to use if a new entity must be created.
+   * @param options - Optional query options.
+   * @returns An object with the `entity` and a `created` flag.
    */
   async findOrCreate(
     filter: FilterOptions[],
     data: Partial<T>,
-    options?: QueryOptions
+    options?: QueryOptions,
   ): Promise<{ entity: T; created: boolean }> {
     const existing = await this.findMany({ filter, limit: 1 });
 
@@ -284,12 +339,19 @@ export class BasePostgresRepository<T> implements IBaseRepository<T> {
   }
 
   /**
-   * Upsert a record
+   * Upsert (update-or-insert) an entity.
+   *
+   * If a matching entity exists it is updated; otherwise a new one is created.
+   *
+   * @param filter - Filter conditions to locate an existing entity.
+   * @param data - Data to upsert.
+   * @param options - Optional query options.
+   * @returns The upserted entity.
    */
   async upsert(
     filter: FilterOptions[],
     data: Partial<T>,
-    options?: QueryOptions
+    options?: QueryOptions,
   ): Promise<T> {
     const existing = await this.findMany({ filter, limit: 1 });
 
@@ -302,11 +364,18 @@ export class BasePostgresRepository<T> implements IBaseRepository<T> {
   }
 
   /**
-   * Bulk upsert records
+   * Bulk upsert an array of records.
+   *
+   * Each record is individually looked up and either updated or created.
+   * Errors are collected per-record rather than aborting the entire batch.
+   *
+   * @param records - Array of `{ filter, data }` pairs.
+   * @param options - Optional query options.
+   * @returns A {@link BulkWriteResult} with insert/update counts and errors.
    */
   async bulkUpsert(
     records: Array<{ filter: FilterOptions[]; data: Partial<T> }>,
-    options?: QueryOptions
+    options?: QueryOptions,
   ): Promise<BulkWriteResult> {
     let insertedCount = 0;
     let updatedCount = 0;
@@ -343,11 +412,15 @@ export class BasePostgresRepository<T> implements IBaseRepository<T> {
   }
 
   /**
-   * Soft delete a record (if supported)
+   * Soft-delete an entity by setting its `deletedAt` timestamp.
+   *
+   * @param id - Entity ID.
+   * @param options - Optional query options.
+   * @returns `true` if the entity was found and soft-deleted.
    */
   async softDelete(
     id: string | number,
-    options?: QueryOptions
+    options?: QueryOptions,
   ): Promise<boolean> {
     const data = { deletedAt: new Date() } as any;
     const result = await this.update(id, data, options);
@@ -355,42 +428,63 @@ export class BasePostgresRepository<T> implements IBaseRepository<T> {
   }
 
   /**
-   * Restore a soft-deleted record
+   * Restore a soft-deleted entity by clearing its `deletedAt` field.
+   *
+   * @param id - Entity ID.
+   * @param options - Optional query options.
+   * @returns The restored entity, or `null` if not found.
    */
   async restore(
     id: string | number,
-    options?: QueryOptions
+    options?: QueryOptions,
   ): Promise<T | null> {
     const data = { deletedAt: null } as any;
     return this.update(id, data, options);
   }
 
   /**
-   * Execute raw SQL query
+   * Execute a raw SQL query against the connection.
+   *
+   * @param query - The SQL query string.
+   * @param parameters - Optional positional parameters.
+   * @returns The raw query result.
    */
   async raw(query: string, parameters?: any[]): Promise<any> {
     return this.postgresService.executeRawQuery(
       this.connectionName,
       query,
-      parameters
+      parameters,
     );
   }
 
   /**
-   * Get query builder for advanced queries
+   * Get a TypeORM `SelectQueryBuilder` for advanced custom queries.
+   *
+   * @param alias - Table alias (default `'entity'`).
+   * @returns A `SelectQueryBuilder` instance.
    */
   getQueryBuilder(alias = 'entity') {
     return this.repository.createQueryBuilder(alias);
   }
 
   /**
-   * Batch process records
+   * Process entities in batches using pagination.
+   *
+   * Iterates through all matching entities page-by-page and invokes
+   * `processor` for each batch.
+   *
+   * @typeParam R - Return type of each batch processor invocation.
+   * @param filter - Filter conditions to select entities.
+   * @param batchSize - Number of entities per batch.
+   * @param processor - Async callback invoked with each batch.
+   * @param options - Optional additional query options.
+   * @returns Array of results from each batch processor call.
    */
   async batchProcess<R>(
     filter: FilterOptions[],
     batchSize: number,
     processor: (batch: T[]) => Promise<R>,
-    options?: QueryOptions
+    options?: QueryOptions,
   ): Promise<R[]> {
     const results: R[] = [];
     let page = 1;
@@ -417,11 +511,18 @@ export class BasePostgresRepository<T> implements IBaseRepository<T> {
   }
 
   /**
-   * Stream records for processing large datasets
+   * Stream entities one-by-one via an async generator.
+   *
+   * Internally paginates in batches and yields individual entities,
+   * which is memory-efficient for large result sets.
+   *
+   * @param filter - Optional filter conditions.
+   * @param options - Optional query options (`limit` controls batch size).
+   * @yields Individual entities of type `T`.
    */
   async *stream(
     filter?: FilterOptions[],
-    options?: QueryOptions
+    options?: QueryOptions,
   ): AsyncGenerator<T, void, unknown> {
     const batchSize = options?.limit || 100;
     let page = 1;
@@ -445,7 +546,11 @@ export class BasePostgresRepository<T> implements IBaseRepository<T> {
   }
 
   /**
-   * Get distinct values for a field
+   * Get distinct values for a specific column.
+   *
+   * @param field - Column name to select distinct values from.
+   * @param filter - Optional filter conditions.
+   * @returns Array of distinct values.
    */
   async distinct(field: string, filter?: FilterOptions[]): Promise<any[]> {
     const queryBuilder = this.repository.createQueryBuilder('entity');
@@ -466,26 +571,38 @@ export class BasePostgresRepository<T> implements IBaseRepository<T> {
   }
 
   /**
-   * Increment a numeric field
+   * Atomically increment a numeric column.
+   *
+   * @param id - Entity ID.
+   * @param field - Column name to increment.
+   * @param value - Amount to add (default `1`).
+   * @param options - Optional query options for re-fetching the entity.
+   * @returns The updated entity, or `null` if not found.
    */
   async increment(
     id: string | number,
     field: string,
     value = 1,
-    options?: QueryOptions
+    options?: QueryOptions,
   ): Promise<T | null> {
     await this.repository.increment({ id } as any, field, value);
     return this.findOne(id, options);
   }
 
   /**
-   * Decrement a numeric field
+   * Atomically decrement a numeric column.
+   *
+   * @param id - Entity ID.
+   * @param field - Column name to decrement.
+   * @param value - Amount to subtract (default `1`).
+   * @param options - Optional query options for re-fetching the entity.
+   * @returns The updated entity, or `null` if not found.
    */
   async decrement(
     id: string | number,
     field: string,
     value = 1,
-    options?: QueryOptions
+    options?: QueryOptions,
   ): Promise<T | null> {
     await this.repository.decrement({ id } as any, field, value);
     return this.findOne(id, options);

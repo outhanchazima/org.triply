@@ -228,7 +228,7 @@ export interface DatabaseConnection {
   /** Database type */
   type: 'postgres' | 'mongodb' | 'redis';
   /** Underlying database connection object */
-  connection: DataSource | Connection | Redis;
+  connection: DataSource | Connection | Redis | null;
   /** Connection status */
   isConnected: boolean;
   /** Last time this connection was used */
@@ -705,7 +705,7 @@ export interface IBaseRepository<T> {
    */
   createMany(
     data: Partial<T>[],
-    options?: BulkOperationOptions
+    options?: BulkOperationOptions,
   ): Promise<BulkWriteResult>;
 
   /**
@@ -718,7 +718,7 @@ export interface IBaseRepository<T> {
   update(
     id: string | number,
     data: Partial<T>,
-    options?: QueryOptions
+    options?: QueryOptions,
   ): Promise<T>;
 
   /**
@@ -731,7 +731,7 @@ export interface IBaseRepository<T> {
   updateMany(
     filter: FilterOptions[],
     data: Partial<T>,
-    options?: QueryOptions
+    options?: QueryOptions,
   ): Promise<number>;
 
   /**
@@ -781,7 +781,7 @@ export interface IBaseRepository<T> {
    */
   search(
     searchOptions: SearchOptions,
-    queryOptions?: QueryOptions
+    queryOptions?: QueryOptions,
   ): Promise<PaginationResult<T>>;
 
   /**
@@ -792,6 +792,6 @@ export interface IBaseRepository<T> {
    */
   transaction<R>(
     fn: (queryRunner: QueryRunner) => Promise<R>,
-    options?: TransactionOptions
+    options?: TransactionOptions,
   ): Promise<R>;
 }

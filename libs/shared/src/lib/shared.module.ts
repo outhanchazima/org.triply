@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { HttpModule } from '@nestjs/axios';
 import { RequestService } from './services/request.service';
 
 @Module({
-  imports: [ConfigModule],
+  imports: [ConfigModule, HttpModule],
   controllers: [],
   providers: [RequestService],
-  exports: [RequestService],
+  exports: [RequestService, HttpModule],
 })
 export class SharedModule {}

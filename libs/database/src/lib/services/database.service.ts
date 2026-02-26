@@ -16,8 +16,8 @@ import {
   Inject,
 } from '@nestjs/common';
 import { DATABASE_OPTIONS } from '../database.constants';
+import type { DatabaseModuleOptions } from '../interfaces/database.interface';
 import {
-  DatabaseModuleOptions,
   DatabaseConnection,
   HealthCheckResult,
 } from '../interfaces/database.interface';
@@ -73,7 +73,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     private readonly mongoService: MongoService,
     private readonly redisService: RedisService,
     private readonly healthService: DatabaseHealthService,
-    private readonly optimizationService: QueryOptimizationService
+    private readonly optimizationService: QueryOptimizationService,
   ) {}
 
   /**
@@ -94,7 +94,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       if (this.options.postgres?.length) {
         await this.postgresService.initialize();
         this.logger.log(
-          `Initialized ${this.options.postgres.length} PostgreSQL connection(s)`
+          `Initialized ${this.options.postgres.length} PostgreSQL connection(s)`,
         );
       }
 
@@ -102,7 +102,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       if (this.options.mongodb?.length) {
         await this.mongoService.initialize();
         this.logger.log(
-          `Initialized ${this.options.mongodb.length} MongoDB connection(s)`
+          `Initialized ${this.options.mongodb.length} MongoDB connection(s)`,
         );
       }
 
@@ -110,7 +110,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       if (this.options.redis?.length) {
         await this.redisService.initialize();
         this.logger.log(
-          `Initialized ${this.options.redis.length} Redis connection(s)`
+          `Initialized ${this.options.redis.length} Redis connection(s)`,
         );
       }
 
@@ -178,7 +178,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
    */
   getConnection(
     name: string,
-    type: 'postgres' | 'mongodb' | 'redis'
+    type: 'postgres' | 'mongodb' | 'redis',
   ): DatabaseConnection | null {
     return this.connectionManager.getConnection(name, type);
   }
@@ -262,12 +262,12 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   async executeSQL<T = unknown>(
     connectionName: string,
     query: string,
-    parameters?: unknown[]
+    parameters?: unknown[],
   ): Promise<T> {
     return this.postgresService.executeRawQuery(
       connectionName,
       query,
-      parameters
+      parameters,
     );
   }
 
@@ -293,12 +293,12 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   async executeAggregation<T = unknown>(
     connectionName: string,
     collection: string,
-    pipeline: Record<string, unknown>[]
+    pipeline: Record<string, unknown>[],
   ): Promise<T[]> {
     return this.mongoService.executeAggregation(
       connectionName,
       collection,
-      pipeline
+      pipeline,
     );
   }
 
@@ -342,7 +342,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
 
     if (!connection) {
       throw new Error(
-        `Connection ${routing.name} of type ${routing.type} not found`
+        `Connection ${routing.name} of type ${routing.type} not found`,
       );
     }
 
@@ -351,13 +351,13 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         return this.postgresService.executeOperation(
           routing.name,
           operation,
-          ...args
+          ...args,
         );
       case 'mongodb':
         return this.mongoService.executeOperation(
           routing.name,
           operation,
-          ...args
+          ...args,
         );
       default:
         throw new Error(`Unsupported database type: ${routing.type}`);
