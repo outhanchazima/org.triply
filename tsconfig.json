@@ -20,6 +20,12 @@
     },
     {
       "path": "./libs/database"
+    },
+    {
+      "path": "./apps/triply.payments-e2e"
+    },
+    {
+      "path": "./apps/triply.payments"
     }
   ]
 }

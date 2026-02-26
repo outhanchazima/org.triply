@@ -52,7 +52,7 @@
       "options": {
         "targetName": "test"
       },
-      "exclude": ["apps/triply.api-e2e/**/*"]
+      "exclude": ["apps/triply.api-e2e/**/*", "apps/triply.payments-e2e/**/*"]
     },
     {
       "plugin": "@nx/js/typescript",

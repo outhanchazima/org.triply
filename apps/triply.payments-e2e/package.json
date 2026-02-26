@@ -1,0 +1,26 @@
+{
+  "name": "@org.triply/triply.payments-e2e",
+  "version": "0.0.1",
+  "private": true,
+  "nx": {
+    "implicitDependencies": [
+      "@org.triply/triply.payments"
+    ],
+    "targets": {
+      "e2e": {
+        "executor": "@nx/jest:jest",
+        "outputs": [
+          "{projectRoot}/test-output/jest/coverage"
+        ],
+        "options": {
+          "jestConfig": "apps/triply.payments-e2e/jest.config.cts",
+          "passWithNoTests": true
+        },
+        "dependsOn": [
+          "@org.triply/triply.payments:build",
+          "@org.triply/triply.payments:serve"
+        ]
+      }
+    }
+  }
+}
