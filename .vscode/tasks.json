@@ -1,0 +1,47 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start triply.api dev server",
+      "type": "shell",
+      "command": "npm run start:triply.api:dev",
+      "isBackground": true
+    },
+    {
+      "label": "Start triply.api dev server",
+      "type": "shell",
+      "command": "npm run start:triply.api:dev",
+      "isBackground": true
+    },
+    {
+      "label": "Start triply.api dev server",
+      "type": "shell",
+      "command": "npm run start:triply.api:dev",
+      "isBackground": true
+    },
+    {
+      "label": "Start triply.api dev server",
+      "type": "shell",
+      "command": "npm run start:triply.api:dev",
+      "isBackground": true
+    },
+    {
+      "label": "Start triply.api dev server",
+      "type": "shell",
+      "command": "npm run start:triply.api:dev",
+      "isBackground": true
+    },
+    {
+      "label": "Start triply.api dev server",
+      "type": "shell",
+      "command": "npm run start:triply.api:dev",
+      "isBackground": true
+    },
+    {
+      "label": "Check triply.api startup",
+      "type": "shell",
+      "command": "npm run start:triply.api:dev 2>&1 | head -100",
+      "isBackground": false
+    }
+  ]
+}

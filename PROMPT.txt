@@ -1,0 +1,777 @@
+================================================================================
+TRIPLY BACKEND — COMPREHENSIVE PROJECT PROMPT
+================================================================================
+
+You are working on **Triply**, a travel platform backend built as an NX monorepo
+with NestJS microservices. This document is the single source of truth for the
+project's architecture, conventions, existing code, and future direction.
+
+Read this entire document before writing any code.
+
+================================================================================
+1. PROJECT OVERVIEW
+================================================================================
+
+Triply is a travel booking and management platform. The backend handles flight
+search (via Amadeus API), hotel search, bookings, payments, and related travel
+services. It is designed as a set of NestJS microservices inside an NX workspace.
+
+Repository root: org.triply/
+Package manager: npm (package-lock.json)
+Node.js target: 22+ (uses structuredClone, crypto.randomUUID, etc.)
+TypeScript: ~5.9.3 (strict mode)
+NX version: 22.5.2
+
+================================================================================
+2. WORKSPACE STRUCTURE
+================================================================================
+
+org.triply/
+├── apps/
+│   ├── triply.api/              # Main API application
+│   │   └── src/
+│   │       ├── main.ts          # Bootstrap: helmet, compression, CORS, versioning, Swagger, ValidationPipe
+│   │       ├── app.module.ts    # Root module: ConfigModule, ThrottlerModule, EventEmitterModule, HealthModule, FlightsModule
+│   │       ├── config/
+│   │       │   └── app.config.ts
+│   │       └── modules/
+│   │           └── flights/
+│   │               ├── flights.module.ts
+│   │               ├── flights.controller.ts
+│   │               ├── flights.service.ts
+│   │               └── dto/
+│   │                   └── search-flights.dto.ts
+│   ├── triply.payments/         # Payment microservice (minimal — scaffold only)
+│   │   └── src/
+│   │       ├── main.ts          # Bootstrap on PAYMENTS_PORT (default 3001)
+│   │       └── app/
+│   │           └── app.module.ts
+│   ├── triply.api-e2e/          # E2E tests for triply.api
+│   └── triply.payments-e2e/     # E2E tests for triply.payments
+├── libs/
+│   ├── shared/                  # Cross-cutting utilities, middleware, pipes, filters, DTOs, config
+│   ├── database/                # Multi-database module (Postgres, MongoDB, Redis)
+│   ├── amadeus/                 # Custom Amadeus API client (typed, NestJS-native)
+│   └── utils/                   # Additional utilities library
+├── package.json                 # Root dependencies
+├── nx.json                      # NX workspace configuration
+├── tsconfig.base.json           # Base TypeScript config
+└── eslint.config.mjs            # ESLint flat config
+
+================================================================================
+3. NX PROJECT NAMING & TAGS
+================================================================================
+
+All projects use short NX names via `nx.name` in their package.json:
+
+  Apps:  triply.api, triply.payments, triply.api-e2e, triply.payments-e2e
+  Libs:  shared, utils, database, amadeus
+
+npm scoped names remain: @org.triply/triply.api, @org.triply/shared, etc.
+
+Tags for module boundary enforcement (eslint depConstraints):
+  - type:app     → can only depend on type:lib
+  - type:e2e     → can depend on type:app and type:lib
+  - scope:shared → only scope:shared
+  - scope:api    → scope:api + scope:shared
+  - scope:payments → scope:payments + scope:shared
+
+================================================================================
+4. KEY DEPENDENCIES
+================================================================================
+
+Runtime:
+  @nestjs/common, @nestjs/core, @nestjs/platform-express  ^11.1.14
+  @nestjs/config ^4.0.3          — Environment configuration
+  @nestjs/swagger ^11.2.6        — OpenAPI documentation
+  @nestjs/throttler ^6.5.0       — Rate limiting
+  @nestjs/axios ^4.0.1           — HTTP client
+  @nestjs/mongoose ^11.0.4       — MongoDB ODM
+  @nestjs/typeorm ^11.0.0        — PostgreSQL ORM
+  @nestjs/jwt ^11.0.2            — JWT token handling
+  @nestjs/passport ^11.0.5       — Authentication strategies
+  @nestjs/bullmq ^11.0.4         — Job queues (BullMQ)
+  @nestjs/cache-manager ^3.1.0   — Caching abstraction
+  @nestjs/event-emitter ^3.0.1   — In-process events
+  @nestjs/schedule ^6.1.1        — Cron / interval scheduling
+  @nestjs/microservices ^11.1.14 — Inter-service communication
+  @nestjs/websockets ^11.1.14    — WebSocket support
+  @nestjs/platform-socket.io ^11.1.14
+
+  mongoose ^9.2.2                — MongoDB driver (note: FilterQuery → QueryFilter in v9)
+  typeorm ^0.3.28                — PostgreSQL ORM
+  pg ^8.18.0                     — PostgreSQL driver
+  redis ^5.11.0                  — Redis client
+  bullmq ^5.70.1                 — Queue library
+  axios ^1.13.5                  — HTTP client
+  class-validator ^0.14.3        — DTO validation decorators
+  class-transformer ^0.5.1       — DTO transformation
+  date-fns ^4.1.0                — Date utilities
+  helmet ^8.1.0                  — Security headers
+  compression ^1.8.1             — Response compression
+  rxjs ^7.8.2                    — Reactive extensions
+  arkenv ^0.11.0 / arktype ^2.1.29 — Runtime env validation
+  @node-rs/bcrypt ^1.10.7        — Password hashing
+  @infisical/sdk ^4.0.6          — Secrets management
+  ulid ^3.0.2                    — Sortable unique IDs
+
+Dev:
+  nx 22.5.2 + @nx/* plugins      — Monorepo tooling
+  jest ^30.2.0 + @swc/jest        — Testing
+  eslint ^9.39.3 + typescript-eslint — Linting
+  prettier ^3.8.1                 — Formatting
+  husky ^9.1.7 + lint-staged      — Git hooks
+  commitlint + czg + changelogen  — Conventional commits
+
+================================================================================
+5. LIBS/SHARED — DETAILED REFERENCE
+================================================================================
+
+Entry point: libs/shared/src/index.ts
+Exports: config, constants, decorators, dto, filters, health, interceptors,
+         interfaces, middleware, pipes, services/request.service, shared.module, utils
+
+5.1  Configuration
+──────────────────
+libs/shared/src/lib/config/env.validation.ts
+  - baseEnvSchema: arkenv schema for common env vars
+    NODE_ENV ('development'|'sandbox'|'production'|'test'), APP_MODE ('sandbox'|'live'),
+    PORT (default 3000), API_PREFIX ('api'), API_VERSION ('1.0.0'),
+    CORS_ORIGINS ('*'), SWAGGER_TITLE, SWAGGER_DESCRIPTION, SWAGGER_VERSION,
+    THROTTLE_TTL (60000), THROTTLE_LIMIT (100)
+  - Environment enum: Development, Sandbox, Production, Test
+  - AppMode enum: Sandbox, Live
+  - validate(): passthrough adapter for ConfigModule
+
+libs/shared/src/lib/config/app.config.ts
+  - createAppConfig(env): registerAs('app', ...) with computed booleans
+    (isProduction, isDevelopment, isSandbox, isLive), cors.origins, swagger config,
+    throttle config
+
+5.2  Constants
+──────────────
+libs/shared/src/lib/constants/index.ts
+  PAGINATION_DEFAULTS  { PAGE: 1, LIMIT: 20, MAX_LIMIT: 100 }
+  CORS_DEFAULTS        { METHODS, ALLOWED_HEADERS, MAX_AGE: 3600 }
+  RATE_LIMIT_DEFAULTS  { TTL: 60_000, LIMIT: 100 }
+  REQUEST_TIMEOUT_MS   30_000
+
+5.3  Middleware
+──────────────
+libs/shared/src/lib/middleware/correlation-id.middleware.ts
+  CorrelationIdMiddleware — ensures x-request-id header (UUID v4 fallback), sets on response
+
+libs/shared/src/lib/middleware/request-logger.middleware.ts
+  RequestLoggerMiddleware — logs method, URL, status, content-length, duration, IP, user-agent
+  on response 'finish' event
+
+5.4  DTOs
+─────────
+libs/shared/src/lib/dto/pagination-query.dto.ts
+  PaginationQueryDto — page (1-based, default 1), limit (max 100, default 20), skip getter
+
+5.5  Pipes
+──────────
+libs/shared/src/lib/pipes/trim-string.pipe.ts
+  TrimStringPipe — trims whitespace from strings, supports deep object trimming
+
+libs/shared/src/lib/pipes/parse-optional-int.pipe.ts
+  ParseOptionalIntPipe — parses optional string→int, undefined pass-through, BadRequestException
+
+5.6  Interceptors
+─────────────────
+libs/shared/src/lib/interceptors/timeout.interceptor.ts
+  TimeoutInterceptor — configurable request timeout, throws 408 RequestTimeoutException
+
+5.7  Decorators
+───────────────
+libs/shared/src/lib/decorators/public.decorator.ts
+  @Public() — SetMetadata(IS_PUBLIC_KEY, true) to bypass auth guards
+
+libs/shared/src/lib/decorators/request-id.decorator.ts
+  @RequestId() — param decorator extracting x-request-id from request headers
+
+libs/shared/src/lib/decorators/api-paginated-response.decorator.ts
+  @ApiPaginatedResponse(Model) — Swagger decorator for paginated response schema
+
+5.8  Filters
+────────────
+libs/shared/src/lib/filters/http-exception.filter.ts
+  HttpExceptionFilter — catches HttpException, returns standardized ApiErrorResponse
+
+libs/shared/src/lib/filters/all-exceptions.filter.ts
+  AllExceptionsFilter — catch-all for unhandled errors, includes stack in non-production
+
+5.9  Interfaces
+───────────────
+libs/shared/src/lib/interfaces/api-response.interface.ts
+  ApiResponseMeta      { timestamp, path, requestId? }
+  ApiSuccessResponse<T> { success: true, data: T, meta }
+  ApiErrorResponse     { success: false, error: { code, message, details? }, meta }
+  PaginationMeta       { page, limit, total, totalPages, hasNext, hasPrevious }
+  PaginatedResponse<T> { success: true, data: T[], pagination, meta }
+
+5.10  Services
+──────────────
+libs/shared/src/lib/services/request.service.ts (731 lines)
+  RequestService — injectable HTTP client wrapping @nestjs/axios:
+    - Content-type negotiation (JSON, form-urlencoded, multipart)
+    - Bearer token injection
+    - Query-string serialization (via qs)
+    - Per-request timing
+    - Retry with exponential back-off
+    - Health-check ping
+    - Binary/stream downloads
+    - Unified error handling with structured logging
+    - NOTE: disables SSL verification by default (review for production)
+
+libs/shared/src/lib/shared.module.ts
+  SharedModule — imports ConfigModule + HttpModule, provides/exports RequestService + HttpModule
+
+5.11  Health
+────────────
+libs/shared/src/lib/health/health.controller.ts
+  GET /health — returns { status, timestamp, uptime, environment, mode }
+  GET /ready  — returns { status: 'ready', timestamp }
+  Uses @SkipThrottle() to bypass rate limiting
+
+libs/shared/src/lib/health/health.module.ts
+  HealthModule — declares and exports HealthController
+
+5.12  Utilities (15 files)
+──────────────────────────
+All in libs/shared/src/lib/utils/. All functions are pure unless noted.
+
+array.util.ts
+  unique, chunk, flattenArray, intersection, difference, sortBy, partition,
+  findWithIndex, shuffle, take, takeLast, toMap, countBy, zip, isEmpty, sample,
+  sampleN, minBy, maxBy
+
+async.util.ts
+  sleep(ms), withTimeout(fn, ms), parallelLimit(fns, concurrency)
+
+cache.util.ts
+  CacheService — injectable wrapper around @nestjs/cache-manager Cache instance
+    get, mget, set, mset, del, mdel, clear, ttl, wrap (cache-aside), disconnect
+  SharedCacheModule.register({ ttl?, max?, isGlobal? }) — dynamic module
+  buildCacheKey(...parts) — joins with ':'
+
+code.util.ts
+  generateTransactionRef(length=10) — M-PESA-style ref: [YearChar][MonthChar][DayChar][random]
+    Year: M=2026..Z=2039, A=2040..L=2051 (wraps every 26 years)
+    Month: A=Jan..L=Dec; Day: 1-9 or A=10..V=31
+    Random: A-Z (no I/O) + 2-9 (no 0/1) — ambiguity-free
+  generateOrderId(prefix='ORD')      — "ORD-{10-char ref}"
+  generateBookingRef(prefix='PNR')   — "PNR-{9-char ref}"
+  generateOTP(length=6)              — crypto-secure numeric OTP
+  generateShortId(length=8)          — URL-safe mixed-case alphanumeric
+  generateUUID()                     — crypto.randomUUID()
+  generatePrefixedId(prefix, len=6)  — "prefix_unixSeconds_random"
+  generateInvoiceNumber(seq, prefix='INV') — "INV-2026-00042"
+  isValidTransactionRef(ref, len=10) — validates format
+  luhnCheckDigit(numericStr)         — Luhn algorithm check digit
+  isValidLuhn(numericStr)            — validates Luhn
+
+datetime.util.ts (wraps date-fns)
+  toDate, formatDate ('yyyy-MM-dd'), formatDateTime ('yyyy-MM-dd HH:mm:ss'),
+  formatDateHuman ('dd MMM yyyy'), formatDateTimeHuman ('dd MMM yyyy, h:mm a'),
+  formatTime ('HH:mm'), formatTime12h ('h:mm a'), timeAgo (relative),
+  durationBetween, diffInSeconds/Minutes/Hours/Days,
+  isExpired, isWithinMinutes,
+  dateRange (inclusive array of Dates),
+  nowUTC, unixTimestamp, fromUnixTimestamp
+  Re-exports: isAfter, isBefore, isFuture, isPast, isSameDay, isToday, isWeekend,
+              addDays/Hours/Minutes/Months/Weeks, subDays/Hours/Months/Weeks,
+              startOfDay/Week/Month, endOfDay/Week/Month
+
+hash.util.ts
+  sha256(data)           — SHA-256 hex digest
+  generateToken(bytes=32) — crypto-secure random hex token
+  safeCompare(a, b)      — timing-safe string comparison
+
+math.util.ts
+  Precision arithmetic (avoids IEEE 754 float errors via integer scaling):
+    decimalPlaces, preciseAdd, preciseSubtract, preciseMultiply, preciseDivide
+  bankersRound (round half to even — for financial aggregations)
+  truncateDecimals, ceilTo, floorTo, nearlyEqual(a,b,epsilon)
+  clamp, roundTo, randomInt, randomFloat, percentage, percentageChange,
+  sum, average, median, toRadians
+  haversineDistance(lat1, lng1, lat2, lng2) — great-circle distance in km
+
+money.util.ts (705 lines)
+  Money interface: { amount: number (minor units), currency: string (ISO 4217) }
+  CURRENCY_CONFIG: 100+ currencies with { decimals, symbol, locale }
+    Major: USD, EUR, GBP, JPY, CHF, CAD, AUD, NZD, CNY, HKD, SGD
+    African: KES, MWK, ZAR, NGN, TZS, UGX, RWF, ZMW, GHS, EGP, MAD, DZD, TND,
+             LYD, SDG, ETB, AOA, XOF, XAF, BWP, MZN, NAD, MUR, SCR, GMD, SLL,
+             LRD, CVE, SZL, LSL, MGA, KMF, DJF, ERN, SOS, SSP, STN, BIF, CDF,
+             GNF, MRU, ZWL
+    European: SEK, NOK, DKK, ISK, PLN, CZK, HUF, RON, BGN, HRK, RSD, UAH, RUB,
+              BYN, MDL, ALL, MKD, BAM, GEL, AMD, AZN, TRY
+    Asian: INR, PKR, BDT, LKR, NPR, BTN, MVR, AFN, THB, VND, IDR, MYR, PHP, MMK,
+           KHR, LAK, BND, TWD, KRW, KPW, MNT, KZT, UZS, TJS, KGS, TMT
+    Middle East: SAR, AED, QAR, KWD, BHD, OMR, JOD, ILS, LBP, SYP, IQD, IRR, YER
+    Americas: MXN, BRL, ARS, CLP, COP, PEN, VES, UYU, PYG, BOB, GTQ, HNL, NIO,
+              CRC, PAB, DOP, CUP, JMD, HTG, TTD, BBD, BSD, BZD, GYD, SRD, AWG
+
+  Core functions:
+    toMinorUnits(major, currency), toMajorUnits(minor, currency)
+    money(amount, currency), moneyFromMinor(minorAmount, currency)
+    addMoney, subtractMoney, multiplyMoney, percentOf, splitMoney (remainder-distributed)
+    formatMoney (Intl.NumberFormat), formatMoneyNumeric
+    isZero, isPositive, isNegative, compareMoney
+
+  Currency conversion (BigInt-scaled, 10^12 precision):
+    ExchangeRate { from, to, rate, _scaled: bigint, timestamp?, source? }
+    exchangeRate(from, to, rate, source?) — creates ExchangeRate
+    convertMoney(money, rate) — precise conversion via bigint arithmetic
+    inverseRate(rate), crossRate(rateA, rateB)
+    applySpread(rate, spreadPercent), midRate(buy, sell), spreadPercent(buy, sell)
+    formatRate(rate, precision?)
+
+object.util.ts
+  deepClone (structuredClone), pick, omit, compact (remove null/undefined),
+  flatten (dot-notation), getNestedValue, setNestedValue, deepMerge,
+  groupBy, keyBy
+
+pagination.util.ts
+  buildPaginationMeta(page, limit, total) → PaginationMeta
+  paginatedResponse(data, page, limit, total, path, requestId?) → PaginatedResponse<T>
+
+retry.util.ts
+  RetryOptions { maxAttempts=3, delayMs=1000, backoff=true, onRetry? }
+  retry(fn, options) — retries async fn with exponential backoff, re-throws last error
+
+sanitize.util.ts
+  stripHtml, escapeHtml, stripSqlChars, stripSpecialChars(str, allowList),
+  sanitizeFileName, sanitize(str, maxLength=1000) — strip HTML + collapse whitespace + limit
+
+slug.util.ts
+  slugify(text) — lowercase, hyphen-delimited, strips special chars
+
+string.util.ts
+  capitalize, titleCase, camelCase, snakeCase, kebabCase,
+  truncate(str, maxLength, suffix='...'),
+  mask(str, visibleChars=4, maskChar='*'),
+  maskEmail, maskPhone,
+  stripWhitespace, normalizeWhitespace,
+  isEmail (lightweight regex), isUrl (URL constructor),
+  initials(name, maxChars=2), pluralize(word, count, plural?),
+  padStart(value, length, char='0')
+
+================================================================================
+6. LIBS/DATABASE — DETAILED REFERENCE
+================================================================================
+
+Entry point: libs/database/src/index.ts
+Supports: PostgreSQL (TypeORM), MongoDB (Mongoose), Redis (ioredis)
+
+6.1  Module
+───────────
+libs/database/src/lib/database.module.ts (505 lines)
+  DatabaseModule — global dynamic NestJS module
+    forRoot(options)      — synchronous config
+    forRootAsync(options) — async config (e.g. with ConfigService)
+    forFeature(options)   — feature-scoped registration for connection-specific repos/models/clients
+
+  Registers: ConnectionManagerService, QueryOptimizationService, DatabaseHealthService
+
+6.2  Constants
+──────────────
+libs/database/src/lib/database.constants.ts (283 lines)
+  Injection tokens: DATABASE_OPTIONS, POSTGRES_CONNECTIONS, MONGO_CONNECTIONS, REDIS_CONNECTIONS
+  DEFAULT_PAGE_SIZE=20, MAX_PAGE_SIZE=100
+  QUERY_OPERATORS: eq, neq, gt, gte, lt, lte, in, nin, like, ilike, between,
+                   exists, isNull, regex, contains, startsWith, endsWith,
+                   arrayContains, arrayOverlap, jsonContains
+  DJANGO_LOOKUP_MAP: maps Django-style lookups (__exact, __gt, __contains, etc.) to operators
+  SORT_ORDER: ASC, DESC
+  DATABASE_ERRORS: CONNECTION_FAILED, QUERY_FAILED, TRANSACTION_FAILED, DUPLICATE_KEY,
+                   FOREIGN_KEY_VIOLATION, NOT_FOUND, VALIDATION_FAILED, TIMEOUT,
+                   POOL_EXHAUSTED, SCHEMA_MISMATCH
+  CACHE_PREFIXES: QUERY, ENTITY, LIST, COUNT, AGGREGATE
+  PERFORMANCE_THRESHOLDS: SLOW_QUERY_MS=200, VERY_SLOW_QUERY_MS=1000,
+                          MAX_POOL_WAIT_MS=5000, HEALTH_CHECK_INTERVAL_MS=30000
+
+6.3  Interfaces
+───────────────
+libs/database/src/lib/interfaces/database.interface.ts (798 lines)
+  DatabaseModuleOptions — top-level config with postgres[], mongo[], redis[] arrays
+  PostgresConnectionConfig — host, port, username, password, database, entities, migrations, etc.
+  MongoConnectionConfig — uri, dbName, connectionOptions, models
+  RedisConnectionConfig — host, port, password, db, keyPrefix, cluster options
+  DatabaseConnection — name, type, status, metrics
+  ConnectionMetrics — queries, errors, avgResponseTime, poolSize, activeConnections
+  QueryOptions — pagination, filter[], sort[], search, populate[], cache, select[], exclude[]
+  FilterOptions — field, operator, value, logic (AND/OR)
+  FilterOperator — eq|neq|gt|gte|lt|lte|in|nin|like|ilike|between|exists|isNull|regex|...
+  SortOptions — field, order (ASC/DESC)
+  SearchOptions — query, fields[], fuzzy?, caseSensitive?
+  PopulateOptions — path, select?, populate? (nested)
+  CacheOptions — key, ttl, invalidateOn[]
+  PaginationResult<T> — data, total, page, limit, totalPages, hasNext, hasPrevious
+  AggregationOptions — groupBy[], metrics (count/sum/avg/min/max), having?
+  TransactionOptions — isolationLevel, timeout, retries
+  BulkOperationOptions — ordered?, skipValidation?, batchSize?
+  BulkWriteResult — inserted, updated, deleted, errors
+  QueryPerformance — query, duration, timestamp, slow, explain?
+  HealthCheckResult — status, latency, connections[], details
+
+  IBaseRepository<T> — interface for standard CRUD + advanced querying:
+    find, findOne, findById, count, exists, create, createMany,
+    update, updateMany, delete, deleteMany,
+    paginate, aggregate, search, bulkWrite, withTransaction,
+    findOrCreate, upsert
+
+6.4  Services (7 total)
+───────────────────────
+  DatabaseService        — main orchestrator for all database operations
+  PostgresService        — PostgreSQL-specific operations with TypeORM
+  MongoService           — MongoDB operations with Mongoose
+  RedisService           — Redis caching, pub/sub, data structure operations
+  ConnectionManagerService — manages all database connections, pooling, metrics
+  QueryOptimizationService — monitors and optimizes query performance
+  DatabaseHealthService  — health checks, automatic recovery attempts
+
+6.5  Repositories
+─────────────────
+libs/database/src/lib/repositories/base-mongo.repository.ts (792 lines)
+  BaseMongoRepository<T> implements IBaseRepository<T>
+    Standard CRUD: find, findOne, findById, create, createMany, update, updateMany, delete, deleteMany
+    Querying: count, exists, paginate, search, aggregate (groupBy/metrics)
+    Transactions: withTransaction
+    Bulk: bulkWrite, bulkUpsert, batchProcess
+    Soft delete: softDelete, restore
+    Aggregation: aggregatePipeline, pipeline (fluent builder)
+    Streaming: stream (cursor-based for large datasets)
+    Indexes: createTextIndex, createCompoundIndex, dropIndex, getIndexes
+    Array ops: push, pull, addToSet
+    Field ops: increment, decrement
+    Utilities: distinct, findOrCreate, upsert
+
+libs/database/src/lib/repositories/base-postgres.repository.ts
+  BasePostgresRepository<T> — reusable repository for PostgreSQL entities (TypeORM)
+
+6.6  Query Filtering
+────────────────────
+  libs/database/src/lib/filters/ — query filter builders
+  Supports Django-style lookups: field__exact, field__gt, field__contains, etc.
+  Maps to internal operators via DJANGO_LOOKUP_MAP constant
+
+================================================================================
+7. LIBS/AMADEUS — DETAILED REFERENCE
+================================================================================
+
+Entry point: libs/amadeus/src/index.ts (181 lines of exports)
+A fully custom, typed Amadeus API client built on @nestjs/axios (NOT the official
+amadeus npm SDK). Provides NestJS-native injectable service with OAuth2 auth.
+
+7.1  Module
+───────────
+libs/amadeus/src/lib/amadeus.module.ts
+  AmadeusModule — imports HttpModule + ConfigModule, provides/exports AmadeusClient
+
+7.2  Client Service
+───────────────────
+libs/amadeus/src/lib/services/amadeus-client.service.ts (216 lines)
+  AmadeusClient (Injectable, default export)
+    Config env vars: AMADEUS_API_URL, AMADEUS_API_KEY, AMADEUS_API_SECRET, AMADEUS_APP_NAME
+    OAuth2: client_credentials flow via /v1/security/oauth2/token
+    Token caching: auto-refreshes 60s before expiry
+    Methods: get<T>(path, params), post<T>(path, data), delete<T>(path, params)
+    Returns: AmadeusResponse<T> { data, statusCode }
+    Headers: Authorization: Bearer, Ama-Client-Ref with timestamp
+
+  Namespaced sub-clients (instantiated in constructor):
+    referenceData, shopping, booking, travel, eReputation, media, ordering,
+    airport, pagination, schedule, analytics, location, airline
+
+7.3  Client Namespaces
+──────────────────────
+Each namespace is a class that delegates to AmadeusClient.get/post/delete.
+
+Shopping (libs/amadeus/src/lib/client/shopping/):
+  flightOffersSearch.get(params)  — GET /v2/shopping/flight-offers
+  flightOffersSearch.post(params) — POST /v2/shopping/flight-offers (advanced search)
+  flightDates, flightDestinations, flightOffers (pricing, prediction, upselling),
+  hotelOffersSearch, hotelOfferSearch(offerId), seatmaps,
+  activities, activity(activityId), availability, transferOffers
+
+Booking: flightOrders, flightOrder(orderId), hotelBookings, hotelOrders
+ReferenceData: airlines, locations (airports, cities, hotels, POIs), urls (checkin-links)
+Travel: analytics (air-traffic booked/traveled/busiest), predictions (flight-delay, trip-purpose)
+Airport: directDestinations, predictions/onTime
+Airline: destinations
+Schedule: flights
+Analytics: itineraryPriceMetrics
+EReputation: hotelSentiments
+Media: files
+Ordering: transferOrders, transferOrder(orderId)
+Location: analytics/categoryRatedAreas
+Pagination: generic pagination helper
+
+7.4  Types
+──────────
+libs/amadeus/src/lib/types/shared.ts (789 lines) — core Amadeus API types:
+  FlightOffer, FlightOrder, Segment, FlightSegment, FlightEndPoint, FlightStop,
+  Price, ExtendedPrice, Fee, Tax, Co2Emission, TravelClass, CurrencyCode,
+  Traveler, Stakeholder, IdentityDocument, Contact, Address, Phone,
+  Remarks, TicketingAgreement, FormOfPayment, CreditCard, BaggageAllowance,
+  FareRules, Dictionaries, Locations, GeoCode, Distance, etc.
+
+libs/amadeus/src/lib/types/errors.ts
+  ErrorCodes: NetworkError | ParserError | ServerError | ClientError |
+              AuthenticationError | NotFoundError | UnknownError
+
+Additional type files per domain: shopping/, booking/, travel/, reference-data/,
+  airport/, airline/, analytics/, e-reputation/, location/, ordering/, schedule/
+
+================================================================================
+8. APPS/TRIPLY.API — MAIN APPLICATION
+================================================================================
+
+8.1  Bootstrap (main.ts)
+────────────────────────
+  - NestFactory.create with env-based log levels
+  - helmet() + compression()
+  - CORS with configurable origins, credentials, maxAge 3600
+  - Global prefix from config (default 'api'), excludes /health and /ready
+  - URI versioning: /v{version}/... (default version from config)
+  - Global ValidationPipe: whitelist, forbidNonWhitelisted, transform,
+    implicitConversion, disableErrorMessages in production
+  - Swagger (DocumentBuilder + SwaggerModule): disabled in production+live mode
+    Available at /{prefix}/docs, persistAuthorization, docExpansion: 'none'
+  - Shutdown hooks enabled
+
+8.2  AppModule
+──────────────
+  ConfigModule.forRoot — global, loads appConfig, validate, expandVariables, cache
+  ThrottlerModule.forRootAsync — from app.throttle.ttl / app.throttle.limit
+  EventEmitterModule.forRoot — wildcard: false, delimiter: '.', maxListeners: 20
+  HealthModule — from @org.triply/shared
+  FlightsModule — flight search feature
+  APP_GUARD: ThrottlerGuard (global rate limiting)
+
+8.3  FlightsModule
+──────────────────
+  Imports: AmadeusModule
+  Controller: FlightsController
+    GET /flights/search?origin=JFK&destination=LAX&date=2026-06-15&adults=1
+    Validates with SearchFlightsDto (IATA 3-letter codes, YYYY-MM-DD date, optional adults)
+  Service: FlightsService
+    Delegates to AmadeusClient.shopping.flightOffersSearch.get()
+
+================================================================================
+9. APPS/TRIPLY.PAYMENTS — PAYMENT SERVICE
+================================================================================
+
+Minimal scaffold:
+  - Bootstrap on PAYMENTS_PORT env var (default 3001)
+  - Global prefix 'api'
+  - Empty AppModule with AppController and AppService
+  - No payment logic implemented yet
+
+================================================================================
+10. CODING CONVENTIONS & PATTERNS
+================================================================================
+
+10.1  NestJS Patterns
+  - Dynamic modules with forRoot / forRootAsync / forFeature
+  - Injectable services with constructor injection
+  - Global modules (DatabaseModule is @Global())
+  - Custom decorators for metadata (@Public, @RequestId)
+  - Global pipes, filters, interceptors registered in main.ts
+  - Param decorators for request context extraction
+
+10.2  TypeScript Style
+  - Strict mode enabled
+  - Interfaces over types for object shapes (except union/utility types)
+  - 'as const' for constant objects
+  - Generic typing throughout (repositories, responses, services)
+  - No `any` — use `unknown` or `Record<string, unknown>` for dynamic data
+  - Explicit return types on public methods
+  - JSDoc with @example blocks on all exported functions
+
+10.3  File Organization
+  - Feature modules in apps/*/src/modules/{feature}/
+  - Each module has: module.ts, controller.ts, service.ts, dto/, entities/
+  - Shared code in libs/ with barrel exports (index.ts)
+  - Utils are pure functions grouped by domain (array, string, money, etc.)
+  - Interfaces in dedicated interfaces/ directories
+  - Constants in constants/ files with SCREAMING_SNAKE_CASE
+
+10.4  API Design
+  - Standardized response envelopes: ApiSuccessResponse, ApiErrorResponse, PaginatedResponse
+  - Correlation ID on every request via x-request-id header
+  - URI versioning: /api/v1/...
+  - Pagination: page (1-based) + limit, returns totalPages/hasNext/hasPrevious
+  - Validation: class-validator decorators on DTOs, whitelist mode
+  - Error responses include timestamp, path, requestId
+
+10.5  Naming Conventions
+  - Files: kebab-case (e.g. flight-offers-search.ts)
+  - Classes: PascalCase (e.g. FlightsService)
+  - Interfaces: PascalCase, prefixed with I for repository interfaces (e.g. IBaseRepository)
+  - Constants: SCREAMING_SNAKE_CASE (e.g. PAGINATION_DEFAULTS)
+  - Functions: camelCase (e.g. buildPaginationMeta)
+  - Env vars: SCREAMING_SNAKE_CASE (e.g. AMADEUS_API_KEY)
+
+10.6  Money & Financial
+  - All monetary values stored as integer minor units (cents, tambala)
+  - Exchange rates use BigInt-scaled arithmetic (×10^12) for precision
+  - Banker's rounding for financial aggregations
+  - M-PESA-style transaction references for booking/order IDs
+
+10.7  Security
+  - helmet() for HTTP security headers
+  - Rate limiting via @nestjs/throttler (global ThrottlerGuard)
+  - CORS with configurable origins
+  - Timing-safe string comparison for token validation
+  - Input sanitization utilities (stripHtml, escapeHtml, stripSqlChars)
+  - @Public() decorator to explicitly opt out of auth (guard not yet implemented)
+  - Infisical SDK for secrets management
+
+================================================================================
+11. ENVIRONMENT VARIABLES
+================================================================================
+
+Common (all apps):
+  NODE_ENV          — 'development' | 'sandbox' | 'production' | 'test'
+  APP_MODE          — 'sandbox' | 'live'
+  PORT              — Server port (default 3000 for API)
+  API_PREFIX        — URL prefix (default 'api')
+  API_VERSION       — Default API version (default '1.0.0')
+  CORS_ORIGINS      — Comma-separated origins or '*'
+  SWAGGER_TITLE     — Swagger doc title
+  SWAGGER_DESCRIPTION — Swagger doc description
+  SWAGGER_VERSION   — Swagger doc version
+  THROTTLE_TTL      — Rate limit window in ms (default 60000)
+  THROTTLE_LIMIT    — Max requests per window (default 100)
+
+Amadeus:
+  AMADEUS_API_URL   — Base URL (e.g. https://test.api.amadeus.com)
+  AMADEUS_API_KEY   — Client ID
+  AMADEUS_API_SECRET — Client secret
+  AMADEUS_APP_NAME  — App name for Ama-Client-Ref header
+
+Payments:
+  PAYMENTS_PORT     — Payment service port (default 3001)
+
+Database (not yet wired but expected):
+  POSTGRES_HOST, POSTGRES_PORT, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
+  MONGO_URI, MONGO_DB_NAME
+  REDIS_HOST, REDIS_PORT, REDIS_PASSWORD
+
+================================================================================
+12. KNOWN ISSUES & GAPS
+================================================================================
+
+12.1  Build Issues (pre-existing)
+  - amadeus lib has TypeScript strict mode errors
+  - database lib has missing module resolution issues
+  - triply.api can't resolve @org.triply/amadeus in webpack
+
+12.2  Missing Implementations
+  - Authentication/Authorization — @Public() decorator exists but no AuthGuard,
+    no JWT strategy, no user module, no role-based access control
+  - User module — no user entity, registration, login, or profile management
+  - Database wiring — DatabaseModule is fully built but NOT imported in any AppModule;
+    no schemas or entities are defined
+  - Payment service — triply.payments is an empty scaffold
+  - Tests — no test files for utilities, services, or modules
+  - env.validation.ts validate() is a passthrough — doesn't actually validate
+
+12.3  Security Concerns
+  - RequestService disables SSL verification by default
+  - No auth guard implementation (all routes are effectively public)
+
+12.4  Potential Improvements
+  - Wire DatabaseModule into triply.api with actual schemas/entities
+  - Implement auth module (JWT + Passport strategies)
+  - Implement user module with registration/login
+  - Build out payment service with actual payment gateway integration
+  - Add comprehensive test suites (unit + integration + e2e)
+  - Implement actual env validation in validate()
+  - Add WebSocket gateway for real-time features (price alerts, booking updates)
+  - Implement caching layer for Amadeus API responses
+  - Add queue processing for async operations (booking confirmations, emails)
+  - Implement logging with correlation ID tracking across services
+
+================================================================================
+13. DEVELOPMENT COMMANDS
+================================================================================
+
+# Install dependencies
+npm install
+
+# Start all services
+npm run start:all
+
+# Start individual services
+npm run start:triply.api:dev       # API with watch mode
+npm run start:triply.payments:dev  # Payments with watch mode
+
+# Build
+npm run build:all
+npm run build:triply.api:prod
+
+# Test
+npm run test:all
+npm run test:affected
+npm run test:triply.api:coverage
+
+# Lint
+npm run lint:all
+npm run lint:triply.api:fix
+
+# Format
+npm run format
+
+# NX graph
+npm run graph
+
+# Generate
+npm run g:module -- --name=users --project=triply.api
+npm run g:service -- --name=users --project=triply.api
+npm run g:controller -- --name=users --project=triply.api
+npm run g:resource -- --name=users --project=triply.api
+
+# Infisical (secrets)
+npm run infisical:dev              # Run API with dev secrets
+npm run infisical:build            # Build with prod secrets
+
+================================================================================
+14. INSTRUCTIONS FOR AI ASSISTANTS
+================================================================================
+
+When working on this codebase:
+
+1. ALWAYS follow existing patterns and conventions documented above.
+2. ALWAYS use the standardized API response envelopes (ApiSuccessResponse,
+   ApiErrorResponse, PaginatedResponse) for controller responses.
+3. ALWAYS add class-validator decorators to DTOs.
+4. ALWAYS use minor units for monetary values and the Money type from money.util.ts.
+5. ALWAYS add JSDoc with @example blocks to exported functions.
+6. NEVER use `any` — use proper types, `unknown`, or `Record<string, unknown>`.
+7. NEVER add dependencies without checking if an existing utility covers the need.
+8. PREFER pure functions in utils/ for logic that doesn't need DI.
+9. PREFER the existing shared utilities (retry, sanitize, hash, etc.) over
+   reimplementing the same logic.
+10. Place shared code in libs/shared, domain-specific code in feature modules.
+11. Use the existing code generation IDs (generateTransactionRef, generateOrderId,
+    generateBookingRef, generatePrefixedId) for entity identifiers.
+12. Use the existing date-fns wrappers in datetime.util.ts rather than raw date-fns.
+13. For new feature modules, follow the pattern:
+    module.ts → imports dependencies
+    controller.ts → validates input, delegates to service, returns envelope
+    service.ts → business logic, calls repositories/external services
+    dto/ → input validation classes
+    entities/ → database schemas/entities
+14. When adding database entities, use the BaseMongoRepository or
+    BasePostgresRepository as the base class.
+15. Register new modules in the appropriate AppModule's imports array.
+16. For env vars, add them to baseEnvSchema and the app config factory.
+
+================================================================================
+END OF PROMPT
+================================================================================
