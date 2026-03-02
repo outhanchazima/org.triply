@@ -19,6 +19,7 @@ import {
   LoggingInterceptor,
   ResponseTransformInterceptor,
 } from './common/interceptors';
+import { AuditInterceptor } from './audit/interceptors';
 import {
   CorrelationIdMiddleware,
   RequestLoggerMiddleware,
@@ -45,6 +46,7 @@ import { HealthModule } from './health/health.module';
     // Interceptors (LoggingInterceptor and ResponseTransformInterceptor are registered globally in AppModule)
     LoggingInterceptor,
     ResponseTransformInterceptor,
+    AuditInterceptor,
 
     // Filters
     AllExceptionsFilter,
@@ -74,6 +76,7 @@ import { HealthModule } from './health/health.module';
     PoliciesGuard,
     LoggingInterceptor,
     ResponseTransformInterceptor,
+    AuditInterceptor,
     AllExceptionsFilter,
     HttpExceptionFilter,
     CorrelationIdMiddleware,

@@ -65,6 +65,7 @@ export class AuditService {
     filters: {
       actorId?: string;
       resource?: string;
+      resourceId?: string;
       action?: AuditAction;
       businessId?: string;
       from?: Date;
