@@ -1,9 +1,19 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
-import { HealthModule, validate } from '@org.triply/shared';
+import { DatabaseModule } from '@org.triply/database';
+
+import {
+  HealthModule,
+  validate,
+  JwtAuthGuard,
+  SharedModule,
+  LoggingInterceptor,
+  ResponseTransformInterceptor,
+  TimeoutInterceptor,
+} from '@org.triply/shared';
 import { appConfig } from './config/app.config';
 import { FlightsModule } from './modules/flights/flights.module';
 
@@ -16,6 +26,19 @@ import { FlightsModule } from './modules/flights/flights.module';
       validate,
       expandVariables: true,
       cache: true,
+    }),
+
+    // ── Database ─────────────────────────────────────────
+    DatabaseModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (cfg: ConfigService) => ({
+        mongodb: [
+          {
+            name: 'main',
+            uri: cfg.getOrThrow<string>('MONGODB_URI'),
+          },
+        ],
+      }),
     }),
 
     // ── Rate Limiting ────────────────────────────────────
@@ -40,11 +63,19 @@ import { FlightsModule } from './modules/flights/flights.module';
     }),
 
     // ── Shared Modules ───────────────────────────────────
+    // SharedModule includes AuthModule, MailModule, and other shared functionality
     HealthModule,
+    SharedModule,
 
     // ── Feature Modules ──────────────────────────────────
     FlightsModule,
   ],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },
+    { provide: APP_INTERCEPTOR, useClass: ResponseTransformInterceptor },
+    { provide: APP_INTERCEPTOR, useValue: new TimeoutInterceptor(30_000) },
+  ],
 })
 export class AppModule {}
