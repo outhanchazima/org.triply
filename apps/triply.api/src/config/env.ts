@@ -32,6 +32,7 @@ export const env = arkenv({
   MAIL_PASS: type('string'),
   MAIL_FROM: type('string'),
   MAIL_FROM_NAME: type('string'),
+  APP_URL: type('string').default('http://localhost:4200'),
 
   // ── Encryption ───────────────────────────────────────────
   ENCRYPTION_KEY: type('string'),
