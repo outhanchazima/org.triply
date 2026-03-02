@@ -62,6 +62,8 @@ import {
 import { TypeOrmModule, TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { MongooseModule, MongooseModuleOptions } from '@nestjs/mongoose';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+
+// ── Services ──────────────────────────────────────────
 import { DatabaseService } from './services/database.service';
 import { PostgresService } from './services/postgres.service';
 import { MongoService } from './services/mongo.service';
@@ -69,12 +71,16 @@ import { RedisService } from './services/redis.service';
 import { ConnectionManagerService } from './services/connection-manager.service';
 import { QueryOptimizationService } from './services/query-optimization.service';
 import { DatabaseHealthService } from './services/database-health.service';
+
+// ── Constants ─────────────────────────────────────────
 import {
   DATABASE_OPTIONS,
   POSTGRES_CONNECTIONS,
   MONGO_CONNECTIONS,
   REDIS_CONNECTIONS,
 } from './database.constants';
+
+// ── Interfaces & Types ────────────────────────────────
 import { DatabaseModuleOptions } from './interfaces/database.interface';
 
 /**
@@ -115,7 +121,8 @@ export interface DatabaseModuleAsyncOptions extends Pick<
    * @returns The database configuration, synchronously or as a `Promise`.
    */
   useFactory: (
-    ...args: unknown[]
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ...args: any[]
   ) => DatabaseModuleOptions | Promise<DatabaseModuleOptions>;
 
   /**
@@ -148,8 +155,26 @@ export interface DatabaseModuleAsyncOptions extends Pick<
 @Global()
 @Module({
   imports: [ConfigModule],
-  providers: [DatabaseService],
-  exports: [DatabaseService],
+  providers: [
+    // Core Services
+    DatabaseService,
+    PostgresService,
+    MongoService,
+    RedisService,
+    ConnectionManagerService,
+    QueryOptimizationService,
+    DatabaseHealthService,
+  ],
+  exports: [
+    // Core Services
+    DatabaseService,
+    PostgresService,
+    MongoService,
+    RedisService,
+    ConnectionManagerService,
+    QueryOptimizationService,
+    DatabaseHealthService,
+  ],
 })
 export class DatabaseModule {
   /**
@@ -312,6 +337,7 @@ export class DatabaseModule {
       imports,
       providers,
       exports: [
+        // Core Services
         DatabaseService,
         PostgresService,
         MongoService,
@@ -319,10 +345,6 @@ export class DatabaseModule {
         ConnectionManagerService,
         QueryOptimizationService,
         DatabaseHealthService,
-        DATABASE_OPTIONS,
-        POSTGRES_CONNECTIONS,
-        MONGO_CONNECTIONS,
-        REDIS_CONNECTIONS,
       ],
     };
   }
@@ -391,6 +413,7 @@ export class DatabaseModule {
       imports: [ConfigModule, ...(asyncOptions.imports || [])],
       providers,
       exports: [
+        // Core Services
         DatabaseService,
         PostgresService,
         MongoService,
@@ -398,10 +421,6 @@ export class DatabaseModule {
         ConnectionManagerService,
         QueryOptimizationService,
         DatabaseHealthService,
-        DATABASE_OPTIONS,
-        POSTGRES_CONNECTIONS,
-        MONGO_CONNECTIONS,
-        REDIS_CONNECTIONS,
       ],
     };
   }

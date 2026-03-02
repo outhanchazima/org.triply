@@ -23,13 +23,20 @@
  * @version 1.0.0
  */
 
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  Optional,
+} from '@nestjs/common';
 import * as Redis from 'ioredis';
 import {
   RedisConnectionConfig,
   CacheOptions,
 } from '../interfaces/database.interface';
 import { ConnectionManagerService } from './connection-manager.service';
+import { REDIS_CONNECTIONS } from '../database.constants';
 
 /**
  * Service for managing Redis connections and operations via ioredis.
@@ -71,17 +78,19 @@ export class RedisService implements OnModuleDestroy {
   /** Map of connection name → publisher Redis client (for pub/sub) */
   private readonly publishers: Map<string, Redis.Redis> = new Map();
 
-  /** Registered connection configurations awaiting initialisation */
-  private readonly configs: Array<{
-    name: string;
-    config: RedisConnectionConfig;
-  }> = [];
-
   /**
    * Creates an instance of RedisService.
    * @param connectionManager - Central registry for all database connections.
    */
-  constructor(private readonly connectionManager: ConnectionManagerService) {}
+  constructor(
+    @Optional()
+    @Inject(REDIS_CONNECTIONS)
+    private readonly configs: Array<{
+      name: string;
+      config: RedisConnectionConfig;
+    }> = [],
+    private readonly connectionManager: ConnectionManagerService,
+  ) {}
 
   /**
    * Initialise all registered Redis connections.

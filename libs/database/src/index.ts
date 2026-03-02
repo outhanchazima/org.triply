@@ -6,19 +6,19 @@
  * and utilities for managing PostgreSQL, MongoDB, and Redis connections.
  * @author Outhan Chazima
  * @version 0.0.1
- * 
- 
+ *
+
  * @example
  * ```typescript
  * // Import the database module
- * import { 
+ * import {
  *   DatabaseModule,
  *   DatabaseService,
  *   BasePostgresRepository,
  *   QueryFilter,
  *   QueryFilters
  * } from '@org.triply/shared/database';
- * 
+ *
  * // Configure the module
  * @Module({
  *   imports: [DatabaseModule.forRoot(config)]
@@ -75,3 +75,40 @@ export * from './lib/filters/filterset';
 export * from './lib/decorators/query-filters.decorator';
 export * from './lib/decorators/api-filters.decorator';
 export * from './lib/interceptors/query-filter.interceptor';
+
+/**
+ * Auth Schemas
+ * @description MongoDB schemas for authentication and user management
+ */
+export * from './lib/schemas/enums';
+export * from './lib/schemas/user.schema';
+export * from './lib/schemas/traveller-profile.schema';
+export * from './lib/schemas/system-user-profile.schema';
+export * from './lib/schemas/business.schema';
+export * from './lib/schemas/business-membership.schema';
+export * from './lib/schemas/refresh-token.schema';
+export * from './lib/schemas/audit-log.schema';
+
+/**
+ * Auth Repositories
+ * @description Repositories for auth-related database operations
+ */
+export * from './lib/repositories/user.repository';
+export * from './lib/repositories/traveller-profile.repository';
+export * from './lib/repositories/system-user-profile.repository';
+export * from './lib/repositories/business.repository';
+export * from './lib/repositories/business-membership.repository';
+export * from './lib/repositories/refresh-token.repository';
+export * from './lib/repositories/audit-log.repository';
+
+/**
+ * Auth DTOs
+ * @description Data Transfer Objects for authentication
+ */
+export * from './lib/dtos/auth.dto';
+
+/**
+ * Feature Database Modules
+ * @description NestJS modules for feature-scoped schema registration
+ */
+export * from './lib/modules';

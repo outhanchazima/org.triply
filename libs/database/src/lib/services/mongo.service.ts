@@ -19,8 +19,10 @@
  * @version 1.0.0
  */
 
-import { Inject, Injectable, Logger } from '@nestjs/common';
-import {
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
+import { getConnectionToken } from '@nestjs/mongoose';
+import mongoose, {
   Connection,
   Model,
   Document,
@@ -87,13 +89,15 @@ export class MongoService {
    * @param connectionManager - Central connection registry.
    */
   constructor(
+    @Optional()
     @Inject(MONGO_CONNECTIONS)
     private readonly configs: Array<{
       name: string;
       config: MongoConnectionConfig;
-    }>,
+    }> = [],
     private readonly optimizationService: QueryOptimizationService,
     private readonly connectionManager: ConnectionManagerService,
+    private readonly moduleRef: ModuleRef,
   ) {}
 
   /**
@@ -107,21 +111,14 @@ export class MongoService {
   async initialize(): Promise<void> {
     for (const { name } of this.configs) {
       try {
-        // Connection is already established by Mongoose module
-        // We just need to register it in our service
-        const connection =
-          await this.connectionManager.registerMongoConnection(name);
-        if (connection) {
-          this.connections.set(name, connection as Connection);
-          this.models.set(name, new Map());
+        // Register with our connection manager and cache the actual connection
+        await this.connectionManager.registerMongoConnection(name);
+        this.getConnection(name);
 
-          // Create indexes for better performance
-          await this.createIndexes(name);
+        // Create indexes for better performance
+        await this.createIndexes(name);
 
-          this.logger.log(
-            `MongoDB connection '${name}' registered successfully`,
-          );
-        }
+        this.logger.log(`MongoDB connection '${name}' registered successfully`);
       } catch (error) {
         this.logger.error(
           `Failed to register MongoDB connection '${name}'`,
@@ -140,11 +137,41 @@ export class MongoService {
    * @throws {Error} If no connection with the given name exists.
    */
   getConnection(name: string): Connection {
-    const connection = this.connections.get(name);
-    if (!connection) {
-      throw new Error(`MongoDB connection '${name}' not found`);
+    const cachedConnection = this.connections.get(name);
+    if (cachedConnection) {
+      return cachedConnection;
     }
-    return connection;
+
+    // Preferred path: resolve named connection from Nest's Mongoose providers
+    const nestConnection = this.resolveNestConnection(name);
+    if (nestConnection) {
+      this.cacheConnection(name, nestConnection);
+      return nestConnection;
+    }
+
+    // Fallback path: try to find an existing Mongoose connection by db name
+    const mongoConnection = this.resolveMongooseConnection(name);
+    if (mongoConnection) {
+      this.cacheConnection(name, mongoConnection);
+      return mongoConnection;
+    }
+
+    // Last resort: create a direct Mongoose connection from this service config
+    const configEntry = this.configs.find((entry) => entry.name === name);
+    if (configEntry) {
+      const createdConnection = this.createConnectionFromConfig(
+        name,
+        configEntry.config,
+      );
+      this.cacheConnection(name, createdConnection);
+      return createdConnection;
+    }
+
+    throw new Error(
+      `MongoDB connection '${name}' not found. Available configs: ${
+        this.configs.map((entry) => entry.name).join(', ') || 'none'
+      }`,
+    );
   }
 
   /**
@@ -1088,5 +1115,103 @@ export class MongoService {
     }
     this.connections.clear();
     this.models.clear();
+  }
+
+  /**
+   * Resolve a named Mongo connection from Nest's DI container.
+   */
+  private resolveNestConnection(name: string): Connection | null {
+    try {
+      return this.moduleRef.get<Connection>(getConnectionToken(name), {
+        strict: false,
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Attempt to match an existing Mongoose connection by db name.
+   */
+  private resolveMongooseConnection(name: string): Connection | null {
+    const configEntry = this.configs.find((entry) => entry.name === name);
+    const targetDbName =
+      configEntry?.config.database ??
+      this.extractDatabaseName(configEntry?.config.uri);
+
+    if (targetDbName) {
+      const byDbName = mongoose.connections.find(
+        (connection: Connection) => connection.name === targetDbName,
+      );
+      if (byDbName) {
+        return byDbName;
+      }
+    }
+
+    return (
+      mongoose.connections.find(
+        (connection: Connection) => connection.name === name,
+      ) || null
+    );
+  }
+
+  /**
+   * Build and create a direct Mongoose connection from config.
+   */
+  private createConnectionFromConfig(
+    name: string,
+    config: MongoConnectionConfig,
+  ): Connection {
+    const uri =
+      config.uri ||
+      `mongodb://${config.host || 'localhost'}:${config.port || 27017}/${
+        config.database || 'test'
+      }`;
+
+    const connection = mongoose.createConnection(uri, {
+      authSource: config.authSource || 'admin',
+      user: config.username,
+      pass: config.password,
+      retryWrites: config.retryWrites !== false,
+      retryReads: config.retryReads !== false,
+      maxPoolSize: config.maxPoolSize || 10,
+      minPoolSize: config.minPoolSize || 2,
+      serverSelectionTimeoutMS: config.serverSelectionTimeout || 5000,
+      socketTimeoutMS: config.socketTimeout || 45000,
+      family: 4,
+      ...(config.options || {}),
+    });
+
+    connection.on('error', (error) => {
+      this.logger.error(`MongoDB connection '${name}' error`, error);
+    });
+
+    return connection;
+  }
+
+  /**
+   * Cache connection and its per-connection model map.
+   */
+  private cacheConnection(name: string, connection: Connection): void {
+    this.connections.set(name, connection);
+    if (!this.models.has(name)) {
+      this.models.set(name, new Map());
+    }
+  }
+
+  /**
+   * Extract database name from MongoDB URI.
+   */
+  private extractDatabaseName(uri?: string): string | null {
+    if (!uri) {
+      return null;
+    }
+
+    const dbWithParams = uri.split('/').pop();
+    if (!dbWithParams) {
+      return null;
+    }
+
+    return dbWithParams.split('?')[0] || null;
   }
 }

@@ -10,7 +10,7 @@
  * @version 1.0.0
  */
 
-import { Model, Document, ClientSession } from 'mongoose';
+import { Model, Document, ClientSession, Schema } from 'mongoose';
 import { QueryRunner } from 'typeorm';
 import {
   IBaseRepository,
@@ -71,7 +71,7 @@ export class BaseMongoRepository<
     private readonly mongoService: MongoService,
     connectionName: string,
     modelName: string,
-    schema?: any,
+    schema?: Schema,
   ) {
     this.connectionName = connectionName;
     this.modelName = modelName;

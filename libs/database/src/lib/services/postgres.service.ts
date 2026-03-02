@@ -14,7 +14,9 @@
  * @version 1.0.0
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
+import { getDataSourceToken } from '@nestjs/typeorm';
 import {
   DataSource,
   Repository,
@@ -22,6 +24,7 @@ import {
   SelectQueryBuilder,
   EntityTarget,
   ObjectLiteral,
+  LoggerOptions,
 } from 'typeorm';
 import {
   PostgresConnectionConfig,
@@ -37,6 +40,7 @@ import {
 } from '../interfaces/database.interface';
 import { QueryOptimizationService } from './query-optimization.service';
 import { ConnectionManagerService } from './connection-manager.service';
+import { POSTGRES_CONNECTIONS } from '../database.constants';
 
 /**
  * Service for managing PostgreSQL connections and operations via TypeORM.
@@ -78,12 +82,6 @@ export class PostgresService {
   private readonly repositories: Map<string, Map<string, Repository<any>>> =
     new Map();
 
-  /** Registered connection configurations awaiting initialisation */
-  private readonly configs: Array<{
-    name: string;
-    config: PostgresConnectionConfig;
-  }> = [];
-
   /**
    * Creates an instance of PostgresService.
    *
@@ -91,8 +89,15 @@ export class PostgresService {
    * @param connectionManager - Central registry for all database connections.
    */
   constructor(
+    @Optional()
+    @Inject(POSTGRES_CONNECTIONS)
+    private readonly configs: Array<{
+      name: string;
+      config: PostgresConnectionConfig;
+    }> = [],
     private readonly optimizationService: QueryOptimizationService,
     private readonly connectionManager: ConnectionManagerService,
+    private readonly moduleRef: ModuleRef,
   ) {}
 
   /**
@@ -105,19 +110,21 @@ export class PostgresService {
    * @throws Error if any connection fails to register.
    */
   async initialize(): Promise<void> {
-    for (const { name } of this.configs) {
+    for (const { name, config } of this.configs) {
       try {
-        // Connection is already established by TypeORM module
-        // We just need to register it in our service
+        await this.connectionManager.registerPostgresConnection(name);
+
         const connection =
-          await this.connectionManager.registerPostgresConnection(name);
-        if (connection) {
-          this.connections.set(name, connection as DataSource);
+          this.resolveNestConnection(name) ||
+          (await this.createConnectionFromConfig(config));
+
+        this.connections.set(name, connection);
+        if (!this.repositories.has(name)) {
           this.repositories.set(name, new Map());
-          this.logger.log(
-            `PostgreSQL connection '${name}' registered successfully`,
-          );
         }
+        this.logger.log(
+          `PostgreSQL connection '${name}' registered successfully`,
+        );
       } catch (error) {
         this.logger.error(
           `Failed to register PostgreSQL connection '${name}'`,
@@ -142,11 +149,25 @@ export class PostgresService {
    * ```
    */
   getConnection(name: string): DataSource {
-    const connection = this.connections.get(name);
-    if (!connection) {
-      throw new Error(`PostgreSQL connection '${name}' not found`);
+    const cachedConnection = this.connections.get(name);
+    if (cachedConnection) {
+      return cachedConnection;
     }
-    return connection;
+
+    const nestConnection = this.resolveNestConnection(name);
+    if (nestConnection) {
+      this.connections.set(name, nestConnection);
+      if (!this.repositories.has(name)) {
+        this.repositories.set(name, new Map());
+      }
+      return nestConnection;
+    }
+
+    throw new Error(
+      `PostgreSQL connection '${name}' not found. Available configs: ${
+        this.configs.map((entry) => entry.name).join(', ') || 'none'
+      }`,
+    );
   }
 
   /**
@@ -820,6 +841,65 @@ export class PostgresService {
     }
     this.connections.clear();
     this.repositories.clear();
+  }
+
+  /**
+   * Resolve a named PostgreSQL connection from Nest's TypeORM providers.
+   */
+  private resolveNestConnection(name: string): DataSource | null {
+    try {
+      return this.moduleRef.get<DataSource>(getDataSourceToken(name), {
+        strict: false,
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Create and initialize a direct DataSource from config.
+   */
+  private async createConnectionFromConfig(
+    config: PostgresConnectionConfig,
+  ): Promise<DataSource> {
+    const dataSource = new DataSource({
+      type: 'postgres',
+      host: config.host || 'localhost',
+      port: config.port || 5432,
+      username: config.username,
+      password: config.password,
+      database: config.database,
+      entities: config.entities || [],
+      synchronize: config.synchronize || false,
+      logging: (config.logging || false) as LoggerOptions,
+      ssl: config.ssl as any,
+      poolSize: config.poolSize || 10,
+      extra: {
+        max: config.maxConnections || 20,
+        min: config.minConnections || 5,
+        idleTimeoutMillis: config.idleTimeout || 30000,
+        connectionTimeoutMillis: config.connectionTimeout || 2000,
+        statement_timeout: config.statementTimeout || 30000,
+        query_timeout: config.queryTimeout || 30000,
+        ...config.extra,
+      },
+      cache: config.cache
+        ? {
+            type: 'redis',
+            options: config.cache as any,
+            duration: config.cacheDuration || 60000,
+          }
+        : false,
+      migrations: config.migrations || [],
+      migrationsRun: config.migrationsRun || false,
+      migrationsTableName: config.migrationsTableName || 'migrations',
+    });
+
+    if (!dataSource.isInitialized) {
+      await dataSource.initialize();
+    }
+
+    return dataSource;
   }
 
   /**
