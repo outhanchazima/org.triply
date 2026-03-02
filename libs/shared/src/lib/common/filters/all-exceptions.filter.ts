@@ -7,7 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
-import { ApiErrorResponse } from '../interfaces/api-response.interface';
+import { ApiErrorResponse } from '../../interfaces/api-response.interface';
 
 /**
  * Catch-all exception filter that handles **every** thrown error — including

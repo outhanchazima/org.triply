@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { Request } from 'express';
 import { Observable, map } from 'rxjs';
-import { ApiSuccessResponse } from '../interfaces/api-response.interface';
+import { ApiSuccessResponse } from '../../interfaces/api-response.interface';
 
 /**
  * Global interceptor that wraps every successful controller response in

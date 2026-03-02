@@ -370,6 +370,196 @@ All monetary values use **integer minor units** (cents / tambala) to avoid float
 
 ---
 
+## Authorization & Access Control
+
+### CASL Integration
+
+The `casl` folder provides access control support using `@casl/ability` library.
+
+| Export               | Description                                        |
+| -------------------- | -------------------------------------------------- |
+| `CaslAbilityFactory` | Service to define and create application abilities |
+| `PoliciesGuard`      | NestJS guard that enforces CASL policies           |
+
+```typescript
+import { CaslAbilityFactory, PoliciesGuard } from '@org.triply/shared';
+
+@UseGuards(PoliciesGuard)
+@CheckPolicies(({ user, ability }) => ability.can('read', 'Post'))
+async getPost(@Param('id') id: string) {
+  return this.postsService.findOne(id);
+}
+```
+
+### Authentication Guards
+
+| Guard                  | Purpose                                           |
+| ---------------------- | ------------------------------------------------- |
+| `JwtAuthGuard`         | Validates JWT tokens and extracts user from token |
+| `RolesGuard`           | Validates user has required roles                 |
+| `PermissionsGuard`     | Validates user has required permissions           |
+| `BusinessContextGuard` | Ensures request is within valid business context  |
+| `SystemUserGuard`      | Restricts access to system users only             |
+| `SelfOrAdminGuard`     | Allows self-access or admin override              |
+
+```typescript
+import { JwtAuthGuard, RolesGuard, Roles } from '@org.triply/shared';
+
+@Controller('users')
+@UseGuards(JwtAuthGuard)
+export class UserController {
+  @Get(':id')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'moderator')
+  async getUser(@Param('id') id: string) {
+    return this.userService.findOne(id);
+  }
+}
+```
+
+### Decorators for Authentication
+
+| Decorator            | Description                                     |
+| -------------------- | ----------------------------------------------- |
+| `@CurrentUser()`     | Extracts authenticated user from request        |
+| `@CurrentBusiness()` | Extracts current business context from request  |
+| `@RequestId()`       | Extracts request ID from `x-request-id` header  |
+| `@Public()`          | Marks endpoint as public (bypasses auth guards) |
+
+```typescript
+@Get('profile')
+@UseGuards(JwtAuthGuard)
+getProfile(@CurrentUser() user: UserPayload) {
+  return user;
+}
+```
+
+---
+
+## Health Checks
+
+The `health` folder provides health check endpoints and monitoring.
+
+| Export             | Description                                |
+| ------------------ | ------------------------------------------ |
+| `HealthModule`     | NestJS module providing `/health` endpoint |
+| `HealthController` | REST controller for health status          |
+
+```typescript
+import { HealthModule } from '@org.triply/shared';
+
+@Module({
+  imports: [HealthModule],
+})
+export class AppModule {}
+
+// GET /health
+// => { status: 'ok', timestamp: '2024-02-27T10:00:00Z', ... }
+```
+
+---
+
+## Email Service
+
+The `mail` folder provides email sending capabilities with templating.
+
+| Export        | Description                                |
+| ------------- | ------------------------------------------ |
+| `MailService` | Send emails using templates and transports |
+
+**Available templates:**
+
+- `kyc-approved.hbs` — KYC approval notification
+- `kyc-rejected.hbs` — KYC rejection notification
+- `kyc-submitted.hbs` — KYC submission confirmation
+- `otp-invite.hbs` — OTP invitation email
+- `otp-login.hbs` — OTP login code email
+- `security-alert.hbs` — Security alert notification
+
+```typescript
+import { MailService } from '@org.triply/shared';
+
+constructor(private mail: MailService) {}
+
+async sendWelcome(email: string, name: string) {
+  await this.mail.sendOtpInvite(email, { name, code: '123456' });
+}
+```
+
+---
+
+## Barrel Exports
+
+Each folder provides barrel exports for convenient importing:
+
+```typescript
+// Services
+import { RequestService } from '@org.triply/shared/services';
+
+// Guards & CASL
+import { JwtAuthGuard, RolesGuard, CaslAbilityFactory } from '@org.triply/shared/guards';
+import { PoliciesGuard } from '@org.triply/shared/casl';
+
+// Decorators
+import { CurrentUser, CurrentBusiness, RequestId, Public } from '@org.triply/shared/decorators';
+
+// Filters
+import { HttpExceptionFilter, AllExceptionsFilter } from '@org.triply/shared/filters';
+
+// Interceptors
+import { ResponseTransformInterceptor, LoggingInterceptor } from '@org.triply/shared/interceptors';
+
+// Pipes
+import { TrimStringPipe, ParseOptionalIntPipe } from '@org.triply/shared/pipes';
+
+// Utils
+import { buildCacheKey, formatMoney, slugify } from '@org.triply/shared/utils';
+```
+
+Or import from the main entry point:
+
+```typescript
+import { SharedModule, RequestService, JwtAuthGuard, CurrentUser, formatMoney } from '@org.triply/shared';
+```
+
+---
+
+## Best Practices
+
+1. **Use the RequestService** for external HTTP calls with built-in retry and timeout
+2. **Leverage decorators** for extracting auth context (`@CurrentUser`, `@RequestId`)
+3. **Apply filters and interceptors globally** for consistent error handling and logging
+4. **Use CASL guards** for declarative access control policies
+5. **Implement middleware** for cross-cutting concerns like correlation IDs
+6. **Use utilities** for string/money/date operations to avoid re-implementing common patterns
+7. **Cache aggressively** using `CacheService.wrap()` for expensive operations
+
+---
+
+## Project Structure
+
+```
+libs/shared/src/lib/
+├── config/              # Application configuration
+├── constants/           # Global application constants
+├── decorators/          # NestJS parameter & method decorators
+├── dto/                 # Data Transfer Objects
+├── filters/             # Global exception filters
+├── guards/              # Authorization & authentication guards
+├── health/              # Health check module & controller
+├── interceptors/        # Global request/response interceptors
+├── interfaces/          # TypeScript interfaces & types
+├── mail/                # Email service & templates
+├── middleware/          # Express middleware
+├── pipes/               # NestJS validation pipes
+├── services/            # HTTP request service
+├── utils/               # Pure utility functions (50+ functions)
+├── casl/                # CASL authorization & policies
+└── shared.module.ts     # Main module export
+```
+
+---
+
 ## Development
 
 ```bash
@@ -378,6 +568,17 @@ npx nx test shared              # Unit tests
 npx nx test shared --coverage   # Coverage
 npx nx lint shared --fix        # Lint & auto-fix
 ```
+
+## Contributing
+
+When adding features to this library:
+
+1. **Create the feature folder** under `libs/shared/src/lib/`
+2. **Add `index.ts`** with barrel exports for the folder
+3. **Export from main module** in [shared.module.ts](src/lib/shared.module.ts)
+4. **Document in this README** with examples
+5. **Add unit tests** in `.spec.ts` files
+6. **Update `src/index.ts`** with feature exports
 
 ## License
 

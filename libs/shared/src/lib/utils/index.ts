@@ -13,3 +13,4 @@ export type { RetryOptions } from './retry.util';
 export * from './sanitize.util';
 export { slugify } from './slug.util';
 export * from './string.util';
+export * from './services';

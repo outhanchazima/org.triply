@@ -6,7 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
-import { ApiErrorResponse } from '../interfaces/api-response.interface';
+import { ApiErrorResponse } from '../../interfaces/api-response.interface';
 
 /**
  * Global exception filter that catches all {@link HttpException} instances

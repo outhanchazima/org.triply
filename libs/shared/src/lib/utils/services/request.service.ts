@@ -13,7 +13,7 @@ import { Agent } from 'https';
 import qs from 'qs';
 import { catchError, lastValueFrom } from 'rxjs';
 
-import { retry, RetryOptions } from '../utils/retry.util';
+import { retry, RetryOptions } from '../../utils/retry.util';
 
 /** Default request timeout in milliseconds. */
 const DEFAULT_TIMEOUT_MS = 60_000;
