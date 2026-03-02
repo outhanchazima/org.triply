@@ -21,6 +21,7 @@ import { PassportModule } from '@nestjs/passport';
 import type { StringValue } from 'ms';
 import { AuthDatabaseModule } from '@org.triply/database';
 import { AuthController } from './auth.controller';
+import { ProfileController } from './profile.controller';
 import { AuthService } from './services/auth.service';
 import { EncryptionService } from './services/encryption.service';
 import { JwtStrategy, GoogleStrategy } from './strategies';
@@ -61,7 +62,7 @@ import { MailModule } from '../mail/mail.module';
     AuditModule,
     MailModule,
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, ProfileController],
   providers: [AuthService, EncryptionService, JwtStrategy, GoogleStrategy],
   exports: [
     AuthService,

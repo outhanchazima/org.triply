@@ -13,7 +13,7 @@ import { JwtPayload } from '../../interfaces/jwt-payload.interface';
  */
 @Injectable()
 export class SelfOrAdminGuard implements CanActivate {
-  constructor(private readonly paramName = 'userId') {}
+  private readonly paramName = 'userId';
 
   canActivate(context: ExecutionContext): boolean {
     const request = context

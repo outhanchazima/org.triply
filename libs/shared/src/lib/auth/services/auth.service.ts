@@ -1,14 +1,17 @@
-// libs/shared/src/lib/services/auth.service.ts
+// libs/shared/src/lib/auth/services/auth.service.ts
 import {
   Injectable,
   UnauthorizedException,
   BadRequestException,
+  ForbiddenException,
   Logger,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { createHash, randomBytes } from 'crypto';
-import { generate, verify } from 'otplib';
+import { generate } from 'otplib';
 import { Request } from 'express';
 import { Types } from 'mongoose';
 
@@ -22,6 +25,8 @@ import {
   UserDocument,
   BusinessMembershipDocument,
   BusinessRole,
+  SystemRole,
+  MembershipStatus,
   TRAVELLER_PERMISSIONS,
   ROLE_PERMISSIONS,
   AuditAction,
@@ -41,12 +46,23 @@ export enum OtpStrategy {
   HOTP = 'hotp',
 }
 
+interface SendOtpResult {
+  user: UserDocument;
+  otp: string;
+  isNewUser: boolean;
+  expiresInSeconds: number;
+}
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
   private readonly jwtSecret: string;
   private readonly jwtExpiresIn: string;
   private readonly jwtExpiresInSeconds: number;
+  private readonly otpSendWindowMs = 10 * 60 * 1000;
+  private readonly otpSendLimit = 3;
+  private readonly otpExpiryMs = 10 * 60 * 1000;
+  private readonly otpSendHistoryByEmail = new Map<string, number[]>();
 
   constructor(
     private readonly configService: ConfigService,
@@ -66,87 +82,63 @@ export class AuthService {
   }
 
   /**
-   * Send OTP to email
+   * Send OTP for login/registration.
    */
   async sendOtp(
     email: string,
     purpose: OtpPurpose = OtpPurpose.LOGIN,
     request?: Request,
   ): Promise<{ message: string; expiresIn: number }> {
-    const normalizedEmail = email.toLowerCase().trim();
-    const ipAddress = request?.ip || '';
+    const result = await this.prepareOtp(email, purpose, request);
 
-    // Find or create user
-    let user = await this.userRepository.findByEmail(normalizedEmail);
-    let isNewUser = false;
-
-    if (!user) {
-      // Create new user shell
-      user = await this.userRepository.create({
-        email: normalizedEmail,
-        displayName: normalizedEmail.split('@')[0],
-        isEmailVerified: false,
-        authProviders: [],
-      });
-      isNewUser = true;
-    }
-
-    // Check if account is locked
-    if (user.isLocked()) {
-      throw new UnauthorizedException(
-        'Account is temporarily locked due to too many failed attempts. Please try again later.',
-      );
-    }
-
-    // Generate 6-digit OTP
-    const secret = `${this.configService.getOrThrow<string>('OTP_SECRET')}:${normalizedEmail}:${purpose}`;
-    const otp = await generate({
-      secret,
-      strategy: OtpStrategy.TOTP,
-      digits: 6,
-      period: this.configService.get<number>('OTP_PERIOD', 300),
-    });
-    const otpHash = this.hashOtp(otp);
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-
-    // Store OTP hash
-    await this.userRepository.setOtp(
-      normalizedEmail,
-      otpHash,
-      expiresAt,
-      purpose,
+    this.logger.log(
+      `[OTP] ${purpose} code for ${result.user.email}: ${result.otp}`,
     );
 
-    // Audit log
-    await this.auditService.log(
-      {
-        action: AuditAction.OTP_SENT,
-        resource: 'User',
-        resourceId: user.id,
-        metadata: { purpose, isNewUser },
-      },
-      undefined,
-      request,
-    );
-
-    // TODO: Send email with OTP
-    // This should be handled by MailService
-    this.logger.log(`[OTP] ${purpose} code for ${normalizedEmail}: ${otp}`);
-    await this.mailService.sendOtpLoginEmail(normalizedEmail, {
-      displayName: user.displayName,
-      otp,
-      expiresInMinutes: this.configService.get<number>('OTP_PERIOD', 300) / 60,
-      ipAddress: ipAddress || '',
+    await this.mailService.sendOtpLoginEmail(result.user.email, {
+      displayName: result.user.displayName,
+      otp: result.otp,
+      expiresInMinutes: Math.floor(result.expiresInSeconds / 60),
+      ipAddress: request?.ip || '',
     });
 
     return {
       message: 'OTP sent to your email',
-      expiresIn: 600, // 10 minutes in seconds
+      expiresIn: result.expiresInSeconds,
     };
   }
 
   /**
-   * Verify OTP and issue tokens
+   * Send invitation OTP with invitation email template.
+   */
+  async sendInviteOtp(
+    email: string,
+    context: {
+      firstName: string;
+      inviterName: string;
+      businessName: string;
+      loginUrl: string;
+    },
+    request?: Request,
+  ): Promise<{ message: string; expiresIn: number }> {
+    const result = await this.prepareOtp(email, OtpPurpose.ONBOARDING, request);
+
+    await this.mailService.sendInviteEmail(result.user.email, {
+      firstName: context.firstName,
+      inviterName: context.inviterName,
+      businessName: context.businessName,
+      otp: result.otp,
+      loginUrl: context.loginUrl,
+    });
+
+    return {
+      message: 'Invitation sent successfully',
+      expiresIn: result.expiresInSeconds,
+    };
+  }
+
+  /**
+   * Verify OTP login and issue access/refresh tokens.
    */
   async verifyOtp(
     email: string,
@@ -157,7 +149,7 @@ export class AuthService {
   ): Promise<AuthResponseDto> {
     const normalizedEmail = email.toLowerCase().trim();
 
-    const user = await this.userRepository.findByEmail(normalizedEmail);
+    const user = await this.userRepository.findByEmailWithOtp(normalizedEmail);
     if (!user) {
       await this.auditService.log(
         {
@@ -172,60 +164,29 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or OTP');
     }
 
-    // Check account lock
-    if (user.isLocked()) {
-      await this.auditService.log(
-        {
-          action: AuditAction.ACCOUNT_LOCKED,
-          resource: 'User',
-          resourceId: user.id,
-          metadata: { email: normalizedEmail },
-        },
-        undefined,
+    await this.ensureNotLocked(user, normalizedEmail, request);
+
+    if (!this.isStoredOtpValid(user, otp, OtpPurpose.LOGIN)) {
+      await this.handleOtpFailure(
+        user,
+        normalizedEmail,
+        'Invalid OTP',
         request,
-      );
-      throw new UnauthorizedException(
-        'Account is temporarily locked. Please try again later.',
       );
     }
 
-    // Verify OTP
-    const secret = `${this.configService.getOrThrow<string>('OTP_SECRET')}:${normalizedEmail}:${user.otpPurpose}`;
-    const result = await verify({
-      token: otp,
-      secret,
-      strategy: OtpStrategy.TOTP,
-    });
+    const isNewUser = !user.isEmailVerified;
 
-    if (!result.valid) {
-      // Increment failed attempts
-      await this.userRepository.incrementLoginAttempts(normalizedEmail);
-
-      await this.auditService.log(
-        {
-          action: AuditAction.OTP_FAILED,
-          resource: 'User',
-          resourceId: user.id,
-          metadata: { reason: 'Invalid OTP' },
-          success: false,
-        },
-        undefined,
-        request,
-      );
-
-      throw new UnauthorizedException('Invalid or expired OTP');
-    }
-
-    // Clear OTP
     await this.userRepository.clearOtp(normalizedEmail);
-
-    // Record successful login
     await this.userRepository.recordLogin(normalizedEmail, ipAddress || '');
 
-    // Build and issue tokens
-    const isNewUser = !user.isEmailVerified;
+    const freshUser = await this.userRepository.findById(user.id);
+    if (!freshUser) {
+      throw new UnauthorizedException('User not found after OTP verification');
+    }
+
     const tokens = await this.buildAndIssueTokens(
-      user,
+      freshUser,
       null,
       deviceInfo,
       ipAddress,
@@ -248,7 +209,151 @@ export class AuthService {
   }
 
   /**
-   * Handle Google OAuth login/registration
+   * Accept invitation, activate membership, and issue tokens with business context.
+   */
+  async acceptInvite(
+    email: string,
+    otp: string,
+    businessId: string,
+    deviceInfo?: string,
+    ipAddress?: string,
+    request?: Request,
+  ): Promise<AuthResponseDto> {
+    const normalizedEmail = email.toLowerCase().trim();
+
+    const user = await this.userRepository.findByEmailWithOtp(normalizedEmail);
+    if (!user) {
+      throw new UnauthorizedException('Invalid invitation credentials');
+    }
+
+    await this.ensureNotLocked(user, normalizedEmail, request);
+
+    const membership = await this.membershipRepository.findByUserAndBusiness(
+      user.id,
+      businessId,
+    );
+
+    if (!membership || membership.status !== MembershipStatus.INVITED) {
+      throw new BadRequestException(
+        'No pending invitation found for this business',
+      );
+    }
+
+    if (!this.isStoredOtpValid(user, otp, OtpPurpose.ONBOARDING)) {
+      await this.handleOtpFailure(
+        user,
+        normalizedEmail,
+        'Invalid invite OTP',
+        request,
+      );
+    }
+
+    const isNewUser = !user.isEmailVerified;
+
+    await this.userRepository.clearOtp(normalizedEmail);
+    await this.userRepository.recordLogin(normalizedEmail, ipAddress || '');
+    await this.membershipRepository.activateMembership(user.id, businessId);
+
+    const freshUser = await this.userRepository.findById(user.id);
+    if (!freshUser) {
+      throw new UnauthorizedException(
+        'User not found after invitation acceptance',
+      );
+    }
+
+    const tokens = await this.buildAndIssueTokens(
+      freshUser,
+      businessId,
+      deviceInfo,
+      ipAddress,
+    );
+
+    await this.auditService.log(
+      {
+        action: AuditAction.MEMBER_JOINED,
+        resource: 'BusinessMembership',
+        resourceId: membership.id,
+        metadata: { businessId },
+      },
+      undefined,
+      request,
+    );
+
+    return {
+      ...tokens,
+      isNewUser,
+    };
+  }
+
+  /**
+   * Activate traveller profile for a non-system user and issue a new access token.
+   */
+  async activateTravellerProfile(
+    userId: string,
+    input: {
+      firstName: string;
+      lastName: string;
+      dateOfBirth?: string;
+      nationality?: string;
+    },
+    request?: Request,
+  ): Promise<{ accessToken: string; message: string }> {
+    const user = await this.userRepository.findById(userId);
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    if (user.isSystemUser) {
+      throw new ForbiddenException(
+        'System users cannot create traveller profiles',
+      );
+    }
+
+    const existingProfile =
+      await this.travellerProfileRepository.findByUserId(userId);
+    if (existingProfile) {
+      throw new BadRequestException('Traveller profile already exists');
+    }
+
+    await this.travellerProfileRepository.create({
+      userId: new Types.ObjectId(userId),
+      firstName: input.firstName,
+      lastName: input.lastName,
+      dateOfBirth: input.dateOfBirth ? new Date(input.dateOfBirth) : null,
+      nationality: input.nationality || null,
+    } as any);
+
+    await this.userRepository.activateTraveller(userId);
+
+    const updatedUser = await this.userRepository.findById(userId);
+    if (!updatedUser) {
+      throw new UnauthorizedException(
+        'User not found after traveller activation',
+      );
+    }
+
+    const { payload } = await this.buildAuthPayload(updatedUser, null);
+    const accessToken = this.signAccessToken(payload);
+
+    await this.auditService.log(
+      {
+        action: AuditAction.USER_UPDATED,
+        resource: 'TravellerProfile',
+        resourceId: userId,
+        metadata: { activated: true },
+      },
+      undefined,
+      request,
+    );
+
+    return {
+      accessToken,
+      message: 'Traveller profile activated',
+    };
+  }
+
+  /**
+   * Handle Google OAuth login/registration.
    */
   async handleGoogleAuth(
     profile: {
@@ -259,24 +364,21 @@ export class AuthService {
     },
     deviceInfo?: string,
     ipAddress?: string,
+    request?: Request,
   ): Promise<AuthResponseDto> {
     const { googleId, email, displayName, avatarUrl } = profile;
     const normalizedEmail = email.toLowerCase().trim();
 
-    // Check for existing user by Google ID
     let user = await this.userRepository.findByGoogleId(googleId);
     let isNewUser = false;
 
     if (!user) {
-      // Check for existing user by email
       user = await this.userRepository.findByEmail(normalizedEmail);
 
       if (user) {
-        // Link Google ID to existing user
         await this.userRepository.linkGoogleId(normalizedEmail, googleId);
         user = await this.userRepository.findById(user.id);
       } else {
-        // Create new user
         user = await this.userRepository.create({
           email: normalizedEmail,
           googleId,
@@ -293,7 +395,6 @@ export class AuthService {
       throw new UnauthorizedException('Failed to create or find user');
     }
 
-    // Record login
     await this.userRepository.recordLogin(normalizedEmail, ipAddress || '');
 
     const tokens = await this.buildAndIssueTokens(
@@ -303,11 +404,15 @@ export class AuthService {
       ipAddress,
     );
 
-    await this.auditService.log({
-      action: AuditAction.LOGIN_GOOGLE,
-      resource: 'User',
-      resourceId: user.id,
-    });
+    await this.auditService.log(
+      {
+        action: AuditAction.LOGIN_GOOGLE,
+        resource: 'User',
+        resourceId: user.id,
+      },
+      undefined,
+      request,
+    );
 
     return {
       ...tokens,
@@ -316,13 +421,12 @@ export class AuthService {
   }
 
   /**
-   * Switch business context and issue new access token
+   * Switch active context and issue a new access token only.
    */
   async switchContext(
     userId: string,
     businessId: string | null,
-    deviceInfo?: string,
-    ipAddress?: string,
+    currentBusinessId?: string | null,
     request?: Request,
   ): Promise<{ accessToken: string; context: AuthContextDto }> {
     const user = await this.userRepository.findById(userId);
@@ -330,44 +434,44 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
 
-    // Validate business membership if businessId provided
+    if (user.isSystemUser && businessId) {
+      throw new BadRequestException(
+        'System users cannot switch into business contexts',
+      );
+    }
+
     if (businessId) {
       const hasMembership = await this.membershipRepository.hasActiveMembership(
         userId,
         businessId,
       );
-      if (!hasMembership && !user.isSystemUser) {
+      if (!hasMembership) {
         throw new BadRequestException('Invalid business context');
       }
     }
 
-    // Build new JWT payload
-    const tokens = await this.buildAndIssueTokens(
-      user,
-      businessId,
-      deviceInfo,
-      ipAddress,
-    );
+    const { payload, context } = await this.buildAuthPayload(user, businessId);
+    const accessToken = this.signAccessToken(payload);
 
     await this.auditService.log(
       {
         action: AuditAction.CONTEXT_SWITCHED,
         resource: 'User',
         resourceId: userId,
-        metadata: { fromBusinessId: user.id, toBusinessId: businessId },
+        metadata: {
+          fromBusinessId: currentBusinessId || null,
+          toBusinessId: businessId,
+        },
       },
       undefined,
       request,
     );
 
-    return {
-      accessToken: tokens.accessToken,
-      context: tokens.context,
-    };
+    return { accessToken, context };
   }
 
   /**
-   * Refresh access token
+   * Refresh token pair (strict rotation).
    */
   async refreshTokens(
     refreshToken: string,
@@ -376,14 +480,11 @@ export class AuthService {
     request?: Request,
   ): Promise<{ accessToken: string; refreshToken: string }> {
     const tokenHash = this.hashToken(refreshToken);
-
-    // Find token
     const tokenDoc =
       await this.refreshTokenRepository.findByTokenHash(tokenHash);
+
     if (!tokenDoc || tokenDoc.isRevoked || tokenDoc.expiresAt < new Date()) {
-      // Detect token reuse
       if (tokenDoc?.isRevoked) {
-        // Revoke all tokens for this user
         await this.refreshTokenRepository.revokeAllForUser(tokenDoc.userId);
 
         await this.auditService.log(
@@ -406,16 +507,13 @@ export class AuthService {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
-    // Revoke old token
     await this.refreshTokenRepository.revoke(tokenDoc.id);
 
-    // Get user
     const user = await this.userRepository.findById(tokenDoc.userId);
     if (!user || !user.isActive) {
       throw new UnauthorizedException('User not found or inactive');
     }
 
-    // Issue new tokens
     const newTokens = await this.generateTokenPair(
       user,
       null,
@@ -437,7 +535,7 @@ export class AuthService {
   }
 
   /**
-   * Logout - revoke refresh token(s)
+   * Logout by revoking one refresh token or all tokens for the user.
    */
   async logout(
     userId: string,
@@ -445,11 +543,9 @@ export class AuthService {
     request?: Request,
   ): Promise<{ message: string }> {
     if (refreshToken) {
-      // Revoke specific token
       const tokenHash = this.hashToken(refreshToken);
       await this.refreshTokenRepository.revokeByTokenHash(tokenHash);
     } else {
-      // Revoke all tokens for user
       await this.refreshTokenRepository.revokeAllForUser(userId);
     }
 
@@ -468,7 +564,7 @@ export class AuthService {
   }
 
   /**
-   * Get current user profile with full context
+   * Resolve current user profile, memberships, and optional profiles.
    */
   async getMe(userId: string): Promise<{
     user: SafeUserDto;
@@ -491,18 +587,8 @@ export class AuthService {
       this.membershipRepository.findActiveByUserId(userId),
     ]);
 
-    const membershipInfos: MembershipInfoDto[] = await Promise.all(
-      memberships.map(async (m: BusinessMembershipDocument) => {
-        const business = await this.businessRepository.findById(m.businessId);
-        return {
-          businessId: m.businessId.toString(),
-          businessName: business?.name || 'Unknown',
-          businessLogoUrl: business?.logoUrl || null,
-          role: m.role,
-          status: m.status,
-        };
-      }),
-    );
+    const membershipInfos: MembershipInfoDto[] =
+      await this.buildMembershipInfos(memberships);
 
     return {
       user: this.toSafeUserDto(user),
@@ -513,7 +599,7 @@ export class AuthService {
   }
 
   /**
-   * Build complete auth response with tokens
+   * Build complete auth response with a new access token and refresh token.
    */
   private async buildAndIssueTokens(
     user: UserDocument,
@@ -521,87 +607,17 @@ export class AuthService {
     deviceInfo?: string,
     ipAddress?: string,
   ): Promise<AuthResponseDto> {
-    // Get memberships
-    const memberships = await this.membershipRepository.findActiveByUserId(
-      user.id,
+    const { payload, context } = await this.buildAuthPayload(
+      user,
+      activeBusinessId,
     );
 
-    // Get active business details
-    let activeBusiness = null;
-    if (activeBusinessId) {
-      activeBusiness = await this.businessRepository.findById(activeBusinessId);
-    }
-
-    // Find active membership
-    const activeMembership = activeBusinessId
-      ? memberships.find(
-          (m: BusinessMembershipDocument) =>
-            m.businessId.toString() === activeBusinessId,
-        )
-      : null;
-
-    // Compute permissions
-    const permissions = this.computePermissions(
-      user.isTraveller,
-      user.isSystemUser,
-      activeMembership?.role as BusinessRole | undefined,
-      activeMembership?.extraPermissions || [],
-      activeMembership?.deniedPermissions || [],
-    );
-
-    // Build membership info
-    const membershipInfos: MembershipInfoDto[] = await Promise.all(
-      memberships.map(async (m: BusinessMembershipDocument) => {
-        const business = await this.businessRepository.findById(m.businessId);
-        return {
-          businessId: m.businessId.toString(),
-          businessName: business?.name || 'Unknown',
-          businessLogoUrl: business?.logoUrl || null,
-          role: m.role,
-          status: m.status,
-        };
-      }),
-    );
-
-    // Build JWT payload
-    const payload: JwtPayload = {
-      sub: user.id,
-      email: user.email,
-      displayName: user.displayName,
-      avatarUrl: user.avatarUrl,
-      isTraveller: user.isTraveller,
-      isSystemUser: user.isSystemUser,
-      activeBusinessId: activeBusiness?.id || null,
-      activeBusinessName: activeBusiness?.name || null,
-      activeRole: activeMembership?.role || null,
-      memberships: membershipInfos,
-      permissions,
-      featureFlags: this.computeFeatureFlags(permissions),
-      iat: Math.floor(Date.now() / 1000),
-      exp:
-        Math.floor(Date.now() / 1000) + this.parseDuration(this.jwtExpiresIn),
-    };
-
-    // Generate tokens
-    const accessToken = this.jwtService.sign(payload, {
-      secret: this.jwtSecret,
-      expiresIn: this.jwtExpiresInSeconds,
-    });
-
+    const accessToken = this.signAccessToken(payload);
     const refreshToken = await this.generateRefreshToken(
       user.id,
       deviceInfo,
       ipAddress,
     );
-
-    const context: AuthContextDto = {
-      activeBusinessId: payload.activeBusinessId,
-      activeBusinessName: payload.activeBusinessName,
-      activeRole: payload.activeRole,
-      memberships: membershipInfos,
-      permissions,
-      featureFlags: payload.featureFlags,
-    };
 
     return {
       accessToken,
@@ -613,7 +629,7 @@ export class AuthService {
   }
 
   /**
-   * Generate token pair (access + refresh)
+   * Generate token pair.
    */
   private async generateTokenPair(
     user: UserDocument,
@@ -627,6 +643,7 @@ export class AuthService {
       deviceInfo,
       ipAddress,
     );
+
     return {
       accessToken: result.accessToken,
       refreshToken: result.refreshToken,
@@ -634,23 +651,120 @@ export class AuthService {
   }
 
   /**
-   * Generate and store refresh token
+   * Build JWT payload and response context without issuing refresh tokens.
+   */
+  private async buildAuthPayload(
+    user: UserDocument,
+    requestedBusinessId: string | null,
+  ): Promise<{ payload: JwtPayload; context: AuthContextDto }> {
+    const [memberships, systemProfile] = await Promise.all([
+      this.membershipRepository.findActiveByUserId(user.id),
+      user.isSystemUser
+        ? this.systemUserProfileRepository.findByUserId(user.id)
+        : Promise.resolve(null),
+    ]);
+
+    const membershipInfos = await this.buildMembershipInfos(memberships);
+
+    const activeMembership = requestedBusinessId
+      ? memberships.find(
+          (membership: BusinessMembershipDocument) =>
+            membership.businessId.toString() === requestedBusinessId,
+        )
+      : null;
+
+    let activeBusinessName: string | null = null;
+    if (requestedBusinessId && activeMembership) {
+      const business =
+        await this.businessRepository.findById(requestedBusinessId);
+      activeBusinessName = business?.name || null;
+    }
+
+    const businessRole = user.isSystemUser ? undefined : activeMembership?.role;
+    const systemRole = user.isSystemUser ? systemProfile?.role || null : null;
+    const effectiveActiveRole: string | null = user.isSystemUser
+      ? systemRole
+      : businessRole || null;
+
+    const permissions = this.computePermissions(
+      user.isTraveller,
+      businessRole,
+      systemRole,
+      activeMembership?.extraPermissions || [],
+      activeMembership?.deniedPermissions || [],
+    );
+
+    const featureFlags = this.computeFeatureFlags(
+      permissions,
+      user.isSystemUser,
+    );
+
+    const payload: JwtPayload = {
+      sub: user.id,
+      email: user.email,
+      displayName: user.displayName,
+      avatarUrl: user.avatarUrl,
+      isTraveller: user.isTraveller,
+      isSystemUser: user.isSystemUser,
+      activeBusinessId: user.isSystemUser ? null : requestedBusinessId,
+      activeBusinessName: user.isSystemUser ? null : activeBusinessName,
+      activeRole: effectiveActiveRole,
+      memberships: membershipInfos,
+      permissions,
+      featureFlags,
+      iat: Math.floor(Date.now() / 1000),
+      exp: Math.floor(Date.now() / 1000) + this.jwtExpiresInSeconds,
+    };
+
+    const context: AuthContextDto = {
+      activeBusinessId: payload.activeBusinessId,
+      activeBusinessName: payload.activeBusinessName,
+      activeRole: payload.activeRole,
+      memberships: membershipInfos,
+      permissions,
+      featureFlags,
+    };
+
+    return { payload, context };
+  }
+
+  /**
+   * Build membership info for the auth context and business switcher.
+   */
+  private async buildMembershipInfos(
+    memberships: BusinessMembershipDocument[],
+  ): Promise<MembershipInfoDto[]> {
+    return Promise.all(
+      memberships.map(async (membership: BusinessMembershipDocument) => {
+        const business = await this.businessRepository.findById(
+          membership.businessId,
+        );
+
+        return {
+          businessId: membership.businessId.toString(),
+          businessName: business?.name || 'Unknown',
+          businessLogoUrl: business?.logoUrl || null,
+          role: membership.role,
+          status: membership.status,
+        };
+      }),
+    );
+  }
+
+  /**
+   * Generate and store a refresh token hash.
    */
   private async generateRefreshToken(
     userId: string,
     deviceInfo?: string,
     ipAddress?: string,
   ): Promise<string> {
-    // Generate random token
-    const tokenBytes = randomBytes(32);
-    const token = tokenBytes.toString('base64url');
+    const token = randomBytes(32).toString('base64url');
     const tokenHash = this.hashToken(token);
 
-    // Calculate expiration
     const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7); // 7 days
+    expiresAt.setDate(expiresAt.getDate() + 7);
 
-    // Store hash
     await this.refreshTokenRepository.create({
       userId: new Types.ObjectId(userId),
       tokenHash,
@@ -664,58 +778,57 @@ export class AuthService {
   }
 
   /**
-   * Compute effective permissions for user
+   * Compute permissions for active context.
    */
   private computePermissions(
     isTraveller: boolean,
-    isSystemUser: boolean,
-    activeRole?: BusinessRole,
+    activeBusinessRole?: BusinessRole,
+    systemRole?: SystemRole | null,
     extraPermissions: string[] = [],
     deniedPermissions: string[] = [],
   ): string[] {
     const permissions = new Set<string>();
 
-    // Traveller permissions
     if (isTraveller) {
-      TRAVELLER_PERMISSIONS.forEach((p: string) => permissions.add(p));
+      TRAVELLER_PERMISSIONS.forEach((permission: string) =>
+        permissions.add(permission),
+      );
     }
 
-    // Business role permissions
-    if (activeRole) {
-      const rolePerms = ROLE_PERMISSIONS[activeRole] || [];
-      rolePerms.forEach((p: string) => permissions.add(p));
+    if (activeBusinessRole) {
+      (ROLE_PERMISSIONS[activeBusinessRole] || []).forEach(
+        (permission: string) => permissions.add(permission),
+      );
     }
 
-    // System user permissions
-    if (isSystemUser) {
-      // System permissions are handled separately via system role
-      // This would need the actual system role to compute
-      // For now, we assume the system role is passed via activeRole
+    if (systemRole) {
+      (ROLE_PERMISSIONS[systemRole] || []).forEach((permission: string) =>
+        permissions.add(permission),
+      );
     }
 
-    // Add extra permissions
-    extraPermissions.forEach((p) => permissions.add(p));
-
-    // Remove denied permissions
-    deniedPermissions.forEach((p: string) => permissions.delete(p));
+    extraPermissions.forEach((permission) => permissions.add(permission));
+    deniedPermissions.forEach((permission) => permissions.delete(permission));
 
     return Array.from(permissions);
   }
 
   /**
-   * Compute feature flags from permissions
+   * Compute frontend feature flags from permissions.
    */
-  private computeFeatureFlags(permissions: string[]) {
-    const has = (p: string) => permissions.includes(p);
+  private computeFeatureFlags(permissions: string[], isSystemUser: boolean) {
+    const has = (permission: string) => permissions.includes(permission);
 
     const isReadOnly =
-      permissions.some((p) => p.includes(':read')) &&
+      permissions.some((permission) => permission.includes(':read')) &&
       !permissions.some(
-        (p) =>
-          p.includes(':create') ||
-          p.includes(':update') ||
-          p.includes(':delete') ||
-          p.includes(':manage'),
+        (permission) =>
+          permission.includes(':create') ||
+          permission.includes(':update') ||
+          permission.includes(':delete') ||
+          permission.includes(':manage') ||
+          permission.includes(':approve') ||
+          permission.includes(':reject'),
       );
 
     return {
@@ -728,12 +841,12 @@ export class AuthService {
       canReviewKyc: has('kyc:review'),
       canManageUsers: has('user:create') || has('user:update'),
       isReadOnly,
-      isSystemUser: has('system:manage'),
+      isSystemUser,
     };
   }
 
   /**
-   * Convert user to safe DTO
+   * Convert user document to safe DTO.
    */
   private toSafeUserDto(user: UserDocument): SafeUserDto {
     return {
@@ -749,25 +862,215 @@ export class AuthService {
   }
 
   /**
-   * Hash OTP for storage
+   * Prepare and store OTP for a given email and purpose.
+   */
+  private async prepareOtp(
+    email: string,
+    purpose: OtpPurpose,
+    request?: Request,
+  ): Promise<SendOtpResult> {
+    const normalizedEmail = email.toLowerCase().trim();
+
+    this.enforceEmailOtpRateLimit(normalizedEmail);
+
+    let user = await this.userRepository.findByEmail(normalizedEmail);
+    let isNewUser = false;
+
+    if (!user) {
+      user = await this.userRepository.create({
+        email: normalizedEmail,
+        displayName: normalizedEmail.split('@')[0],
+        isEmailVerified: false,
+        authProviders: ['otp'],
+      });
+      isNewUser = true;
+    }
+
+    if (user.isLocked()) {
+      throw new UnauthorizedException(
+        'Account is temporarily locked due to too many failed attempts. Please try again later.',
+      );
+    }
+
+    const secret = `${this.configService.getOrThrow<string>('OTP_SECRET')}:${normalizedEmail}:${purpose}`;
+    const otp = await generate({
+      secret,
+      strategy: OtpStrategy.TOTP,
+      digits: 6,
+      period: this.configService.get<number>('OTP_PERIOD', 300),
+    });
+
+    const expiresAt = new Date(Date.now() + this.otpExpiryMs);
+
+    await this.userRepository.setOtp(
+      normalizedEmail,
+      this.hashOtp(otp),
+      expiresAt,
+      purpose,
+    );
+    await this.userRepository.addAuthProvider(normalizedEmail, 'otp');
+
+    await this.auditService.log(
+      {
+        action: AuditAction.OTP_SENT,
+        resource: 'User',
+        resourceId: user.id,
+        metadata: { purpose, isNewUser },
+      },
+      undefined,
+      request,
+    );
+
+    return {
+      user,
+      otp,
+      isNewUser,
+      expiresInSeconds: Math.floor(this.otpExpiryMs / 1000),
+    };
+  }
+
+  /**
+   * Ensure user account is not currently locked.
+   */
+  private async ensureNotLocked(
+    user: UserDocument,
+    email: string,
+    request?: Request,
+  ): Promise<void> {
+    if (!user.isLocked()) {
+      return;
+    }
+
+    await this.auditService.log(
+      {
+        action: AuditAction.ACCOUNT_LOCKED,
+        resource: 'User',
+        resourceId: user.id,
+        metadata: { email },
+      },
+      undefined,
+      request,
+    );
+
+    throw new UnauthorizedException(
+      'Account is temporarily locked. Please try again later.',
+    );
+  }
+
+  /**
+   * Handle a failed OTP verification attempt.
+   */
+  private async handleOtpFailure(
+    user: UserDocument,
+    email: string,
+    reason: string,
+    request?: Request,
+  ): Promise<never> {
+    const updatedUser = await this.userRepository.incrementLoginAttempts(email);
+
+    await this.auditService.log(
+      {
+        action: AuditAction.OTP_FAILED,
+        resource: 'User',
+        resourceId: user.id,
+        metadata: { reason },
+        success: false,
+      },
+      undefined,
+      request,
+    );
+
+    if (updatedUser?.isLocked()) {
+      await this.auditService.log(
+        {
+          action: AuditAction.ACCOUNT_LOCKED,
+          resource: 'User',
+          resourceId: user.id,
+          metadata: { email },
+        },
+        undefined,
+        request,
+      );
+    }
+
+    throw new UnauthorizedException('Invalid or expired OTP');
+  }
+
+  /**
+   * Validate submitted OTP against stored OTP hash/expiry/purpose.
+   */
+  private isStoredOtpValid(
+    user: UserDocument,
+    otp: string,
+    expectedPurpose: OtpPurpose,
+  ): boolean {
+    if (!user.otpCode || !user.otpExpires || !user.otpPurpose) {
+      return false;
+    }
+
+    if (user.otpPurpose !== expectedPurpose) {
+      return false;
+    }
+
+    if (user.otpExpires.getTime() < Date.now()) {
+      return false;
+    }
+
+    return this.hashOtp(otp) === user.otpCode;
+  }
+
+  /**
+   * Enforce per-email OTP send rate limit.
+   */
+  private enforceEmailOtpRateLimit(email: string): void {
+    const now = Date.now();
+    const recent = (this.otpSendHistoryByEmail.get(email) || []).filter(
+      (timestamp) => now - timestamp < this.otpSendWindowMs,
+    );
+
+    if (recent.length >= this.otpSendLimit) {
+      throw new HttpException(
+        'Too many OTP requests for this email. Please try again later.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    recent.push(now);
+    this.otpSendHistoryByEmail.set(email, recent);
+  }
+
+  /**
+   * Sign an access token from JWT payload.
+   */
+  private signAccessToken(payload: JwtPayload): string {
+    return this.jwtService.sign(payload, {
+      secret: this.jwtSecret,
+      expiresIn: this.jwtExpiresInSeconds,
+    });
+  }
+
+  /**
+   * Hash OTP for secure storage.
    */
   private hashOtp(otp: string): string {
     return createHash('sha256').update(otp).digest('hex');
   }
 
   /**
-   * Hash refresh token for storage
+   * Hash refresh token for secure storage.
    */
   private hashToken(token: string): string {
     return createHash('sha256').update(token).digest('hex');
   }
 
   /**
-   * Parse duration string to seconds
+   * Parse duration string (e.g. 15m, 7d) to seconds.
    */
   private parseDuration(duration: string): number {
     const match = duration.match(/^(\d+)([smhd])$/);
-    if (!match) return 900; // default 15 minutes
+    if (!match) {
+      return 900;
+    }
 
     const value = parseInt(match[1], 10);
     const unit = match[2];

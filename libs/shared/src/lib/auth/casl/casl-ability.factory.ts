@@ -1,27 +1,19 @@
-// libs/shared/src/lib/casl/casl-ability.factory.ts
+// libs/shared/src/lib/auth/casl/casl-ability.factory.ts
 import { Injectable } from '@nestjs/common';
 import {
   AbilityBuilder,
   createMongoAbility,
   MongoAbility,
 } from '@casl/ability';
-import {
-  BusinessRole,
-  Permission,
-  ROLE_PERMISSIONS,
-  SystemRole,
-} from '@org.triply/database';
+import { BusinessRole, Permission, SystemRole } from '@org.triply/database';
 import { JwtPayload } from '../../interfaces/jwt-payload.interface';
 
 export type AppAbility = MongoAbility;
 
-export type Subject = string;
-export type Action = string;
-
 @Injectable()
 export class CaslAbilityFactory {
   /**
-   * Create CASL ability for a user based on their JWT payload
+   * Create CASL ability from JWT payload.
    */
   createForUser(jwtPayload: JwtPayload): AppAbility {
     const { can, cannot, build } = new AbilityBuilder<AppAbility>(
@@ -37,32 +29,48 @@ export class CaslAbilityFactory {
       permissions,
     } = jwtPayload;
 
-    // super_user has all permissions
-    if (permissions.includes(Permission.SYSTEM_MANAGE) && isSystemUser) {
+    if (isSystemUser && activeRole === SystemRole.SUPER_USER) {
       can('manage', 'all');
       return build();
     }
 
-    // System roles
-    if (isSystemUser) {
-      this.defineSystemAbilities(can, cannot, activeRole as SystemRole, sub);
-      return build();
+    for (const permission of permissions) {
+      const ability = this.permissionToAbility(permission);
+      if (!ability) {
+        continue;
+      }
+
+      const condition =
+        !isSystemUser &&
+        activeBusinessId &&
+        this.isBusinessScopedSubject(ability.subject)
+          ? { businessId: activeBusinessId }
+          : undefined;
+
+      if (condition) {
+        can(ability.action, ability.subject, condition);
+      } else {
+        can(ability.action, ability.subject);
+      }
     }
 
-    // Traveller permissions (always available if isTraveller)
+    if (isSystemUser && activeRole) {
+      this.applySystemRules(can, cannot, activeRole as SystemRole);
+    }
+
     if (isTraveller) {
-      this.defineTravellerAbilities(can, cannot, sub);
+      can('read', 'User', { _id: sub });
+      can('update', 'User', { _id: sub });
+      cannot('delete', 'User', { _id: sub });
     }
 
-    // Business role permissions (only if active business context)
-    if (activeBusinessId && activeRole) {
-      this.defineBusinessAbilities(
+    if (!isSystemUser && activeBusinessId && activeRole) {
+      this.applyBusinessRules(
         can,
         cannot,
         activeRole as BusinessRole,
         activeBusinessId,
         sub,
-        permissions,
       );
     }
 
@@ -70,137 +78,149 @@ export class CaslAbilityFactory {
   }
 
   /**
-   * Define abilities for system users
-   */
-  private defineSystemAbilities(
-    can: AbilityBuilder<AppAbility>['can'],
-    cannot: AbilityBuilder<AppAbility>['cannot'],
-    role: SystemRole | null,
-    userId: string,
-  ): void {
-    if (!role) return;
-
-    const permissions = ROLE_PERMISSIONS[role] || [];
-
-    // Apply each permission as an ability
-    for (const permission of permissions) {
-      const [action, subject] = permission.split(':');
-      if (action && subject) {
-        can(action, subject);
-      }
-    }
-
-    // System-specific restrictions
-    if (role === SystemRole.SYSTEM_ADMIN) {
-      cannot('delete', 'Business');
-      cannot('delete', 'User');
-    }
-
-    if (role === SystemRole.SYSTEM_AUDITOR) {
-      // Auditors are read-only
-      cannot('create', 'all');
-      cannot('update', 'all');
-      cannot('delete', 'all');
-    }
-
-    // System users cannot be members of businesses
-    cannot('join', 'Business');
-  }
-
-  /**
-   * Define abilities for traveller users
-   */
-  private defineTravellerAbilities(
-    can: AbilityBuilder<AppAbility>['can'],
-    cannot: AbilityBuilder<AppAbility>['cannot'],
-    userId: string,
-  ): void {
-    // Travellers can manage their own profile and bookings
-    can('read', 'User', { _id: userId });
-    can('update', 'User', { _id: userId });
-    can('create', 'Booking');
-    can('read', 'Booking', { userId });
-    can('update', 'Booking', { userId });
-    can('delete', 'Booking', { userId });
-
-    cannot('delete', 'User', { _id: userId }); // Cannot delete own account
-  }
-
-  /**
-   * Define abilities for business users
-   */
-  private defineBusinessAbilities(
-    can: AbilityBuilder<AppAbility>['can'],
-    cannot: AbilityBuilder<AppAbility>['cannot'],
-    role: BusinessRole,
-    businessId: string,
-    userId: string,
-    permissions: string[],
-  ): void {
-    // Apply role-based permissions
-    const rolePermissions = ROLE_PERMISSIONS[role] || [];
-
-    for (const permission of [...rolePermissions, ...permissions]) {
-      const [action, subject] = permission.split(':');
-      if (action && subject) {
-        // Scope abilities to active business context
-        if (subject === 'Business') {
-          can(action, subject, { _id: businessId });
-        } else if (subject === 'BusinessMembership') {
-          can(action, subject, { businessId });
-        } else if (subject === 'User') {
-          // For User operations, only allow on self or within business context
-          can(action, subject, { _id: userId });
-        } else {
-          // For other subjects, scope by businessId if applicable
-          can(action, subject, { businessId });
-        }
-      }
-    }
-
-    // Business owner specific permissions
-    if (role === BusinessRole.BUSINESS_OWNER) {
-      can('manage', 'Business', { _id: businessId });
-      can('manage', 'BusinessMembership', { businessId });
-      can('manage', 'Kyc', { businessId });
-
-      // Cannot manage other businesses
-      cannot('manage', 'Business', { _id: { $ne: businessId } });
-    }
-
-    // Business auditor restrictions
-    if (role === BusinessRole.BUSINESS_AUDITOR) {
-      cannot('create', 'all');
-      cannot('update', 'all');
-      cannot('delete', 'all');
-    }
-
-    // All business users can update their own profile
-    can('update', 'User', { _id: userId });
-    cannot('delete', 'User', { _id: userId });
-  }
-
-  /**
-   * Check if user has a specific permission
+   * Check if a user has a specific permission.
    */
   hasPermission(jwtPayload: JwtPayload, permission: Permission): boolean {
     return jwtPayload.permissions.includes(permission);
   }
 
   /**
-   * Check if user has any of the specified permissions
+   * Check if user has any permission from a list.
    */
   hasAnyPermission(jwtPayload: JwtPayload, permissions: Permission[]): boolean {
-    return permissions.some((p) => jwtPayload.permissions.includes(p));
+    return permissions.some((permission) =>
+      jwtPayload.permissions.includes(permission),
+    );
   }
 
   /**
-   * Check if user has all of the specified permissions
+   * Check if user has all permissions from a list.
    */
   hasAllPermissions(
     jwtPayload: JwtPayload,
     permissions: Permission[],
   ): boolean {
-    return permissions.every((p) => jwtPayload.permissions.includes(p));
+    return permissions.every((permission) =>
+      jwtPayload.permissions.includes(permission),
+    );
+  }
+
+  private applySystemRules(
+    can: AbilityBuilder<AppAbility>['can'],
+    cannot: AbilityBuilder<AppAbility>['cannot'],
+    role: SystemRole,
+  ): void {
+    if (role === SystemRole.SYSTEM_ADMIN) {
+      cannot('delete', 'Business');
+    }
+
+    if (role === SystemRole.SYSTEM_AUDITOR) {
+      cannot('create', 'all');
+      cannot('update', 'all');
+      cannot('delete', 'all');
+      cannot('approve', 'all');
+      cannot('reject', 'all');
+      cannot('suspend', 'all');
+    }
+
+    // System users remain isolated from business membership actions.
+    cannot('manage', 'BusinessMembership');
+  }
+
+  private applyBusinessRules(
+    can: AbilityBuilder<AppAbility>['can'],
+    cannot: AbilityBuilder<AppAbility>['cannot'],
+    role: BusinessRole,
+    activeBusinessId: string,
+    userId: string,
+  ): void {
+    if (role === BusinessRole.BUSINESS_OWNER) {
+      can('manage', 'Business', { _id: activeBusinessId });
+      can('manage', 'BusinessMembership', { businessId: activeBusinessId });
+      can('read', 'User', { businessId: activeBusinessId });
+      can('update', 'User', { _id: userId });
+      cannot('delete', 'User', { _id: userId });
+      cannot('manage', 'Business', {
+        _id: { $ne: activeBusinessId },
+      });
+      return;
+    }
+
+    if (role === BusinessRole.BUSINESS_AGENT) {
+      can('read', 'Business', { _id: activeBusinessId });
+      can('read', 'BusinessMembership', { businessId: activeBusinessId });
+      can('create', 'Booking');
+      can('update', 'User', { _id: userId });
+      return;
+    }
+
+    if (role === BusinessRole.BUSINESS_FINANCE) {
+      can('read', 'Business', { _id: activeBusinessId });
+      can('read', 'Finance', { businessId: activeBusinessId });
+      can('update', 'User', { _id: userId });
+      return;
+    }
+
+    if (role === BusinessRole.BUSINESS_AUDITOR) {
+      can('read', 'all', { businessId: activeBusinessId });
+      cannot('create', 'all');
+      cannot('update', 'all');
+      cannot('delete', 'all');
+    }
+  }
+
+  private permissionToAbility(
+    permission: string,
+  ): { action: string; subject: string } | null {
+    const [resource, operation] = permission.split(':');
+    if (!resource || !operation) {
+      return null;
+    }
+
+    const subjectMap: Record<string, string> = {
+      user: 'User',
+      business: 'Business',
+      member: 'BusinessMembership',
+      booking: 'Booking',
+      finance: 'Finance',
+      audit: 'Audit',
+      system: 'System',
+      kyc: 'Kyc',
+    };
+
+    const actionMap: Record<string, string> = {
+      create: 'create',
+      read: 'read',
+      update: 'update',
+      delete: 'delete',
+      manage: 'manage',
+      approve: 'approve',
+      reject: 'reject',
+      suspend: 'suspend',
+      export: 'export',
+      impersonate: 'impersonate',
+      user_provision: 'provision',
+      approve_kyc: 'approve',
+    };
+
+    const subject = subjectMap[resource];
+    const action = actionMap[operation];
+
+    if (!subject || !action) {
+      return null;
+    }
+
+    return { action, subject };
+  }
+
+  private isBusinessScopedSubject(subject: string): boolean {
+    return [
+      'Business',
+      'BusinessMembership',
+      'Booking',
+      'Finance',
+      'Audit',
+      'Kyc',
+    ].includes(subject);
   }
 }

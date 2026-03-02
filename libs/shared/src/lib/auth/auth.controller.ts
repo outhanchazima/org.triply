@@ -8,8 +8,9 @@ import {
   Req,
   Ip,
   Headers,
+  Res,
 } from '@nestjs/common';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import {
   ApiTags,
   ApiOperation,
@@ -17,12 +18,15 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
+import { AuthGuard } from '@nestjs/passport';
+import { ConfigService } from '@nestjs/config';
 
 import {
   SendOtpDto,
   VerifyOtpDto,
   RefreshTokenDto,
   SwitchContextDto,
+  AcceptInviteDto,
   AuthResponseDto,
   SafeUserDto,
   AuthContextDto,
@@ -37,7 +41,10 @@ import type { JwtPayload } from '../interfaces/jwt-payload.interface';
 @ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly configService: ConfigService,
+  ) {}
 
   /**
    * Send OTP to email (login/register)
@@ -85,21 +92,83 @@ export class AuthController {
    * Google OAuth redirect
    */
   @Public()
+  @UseGuards(AuthGuard('google'))
   @Get('google')
   @ApiOperation({ summary: 'Redirect to Google OAuth' })
   async googleAuth(): Promise<void> {
-    // Handled by Passport GoogleStrategy
+    // Handled by Passport GoogleStrategy guard
   }
 
   /**
    * Google OAuth callback
    */
   @Public()
+  @UseGuards(AuthGuard('google'))
   @Get('google/callback')
   @ApiOperation({ summary: 'Google OAuth callback' })
   @ApiResponse({ status: 302, description: 'Redirect with tokens' })
-  async googleAuthCallback(): Promise<void> {
-    // Handled by Passport GoogleStrategy
+  async googleAuthCallback(
+    @Req()
+    request: Request & {
+      user?: {
+        googleId: string;
+        email: string;
+        displayName: string;
+        avatarUrl: string | null;
+      };
+    },
+    @Res() response: Response,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent: string,
+  ): Promise<void> {
+    if (!request.user) {
+      response.redirect('/auth/error?message=google_auth_failed');
+      return;
+    }
+
+    const auth = await this.authService.handleGoogleAuth(
+      request.user,
+      userAgent,
+      ip,
+      request,
+    );
+
+    const appUrl = this.configService.get<string>(
+      'APP_URL',
+      'http://localhost:4200',
+    );
+    const redirectUrl = new URL('/auth/callback', appUrl);
+    redirectUrl.searchParams.set('token', auth.accessToken);
+    redirectUrl.searchParams.set('refresh', auth.refreshToken);
+
+    response.redirect(redirectUrl.toString());
+  }
+
+  /**
+   * Accept business invitation
+   */
+  @Public()
+  @Post('accept-invite')
+  @ApiOperation({ summary: 'Accept invitation with OTP' })
+  @ApiResponse({
+    status: 200,
+    description: 'Invitation accepted and tokens issued',
+    type: AuthResponseDto,
+  })
+  async acceptInvite(
+    @Body() dto: AcceptInviteDto,
+    @Ip() ip: string,
+    @Headers('user-agent') deviceInfo: string,
+    @Req() request: Request,
+  ): Promise<AuthResponseDto> {
+    return this.authService.acceptInvite(
+      dto.email,
+      dto.otp,
+      dto.businessId,
+      deviceInfo,
+      ip,
+      request,
+    );
   }
 
   /**
@@ -189,15 +258,12 @@ export class AuthController {
   async switchContext(
     @CurrentUser() user: JwtPayload,
     @Body() dto: SwitchContextDto,
-    @Ip() ip: string,
-    @Headers('user-agent') deviceInfo: string,
     @Req() request: Request,
   ): Promise<{ accessToken: string; context: AuthContextDto }> {
     return this.authService.switchContext(
       user.sub,
       dto.businessId,
-      deviceInfo,
-      ip,
+      user.activeBusinessId,
       request,
     );
   }
