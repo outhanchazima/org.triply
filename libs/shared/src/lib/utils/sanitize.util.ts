@@ -82,7 +82,7 @@ export function stripSqlChars(str: string): string {
  * ```
  */
 export function stripSpecialChars(str: string, allowList = ' -_@.'): string {
-  const escaped = allowList.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escaped = allowList.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&');
   const regex = new RegExp(`[^a-zA-Z0-9${escaped}]`, 'g');
   return str.replace(regex, '');
 }

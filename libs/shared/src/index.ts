@@ -9,4 +9,5 @@ export * from './lib/common/dto';
 export * from './lib/health';
 export * from './lib/interfaces';
 export * from './lib/shared.module';
+export * from './lib/file-upload';
 export * from './lib/utils';

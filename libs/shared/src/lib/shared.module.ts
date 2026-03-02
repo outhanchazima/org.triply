@@ -28,6 +28,7 @@ import {
 // Utils
 import { RequestService } from './utils/services';
 import { HealthModule } from './health/health.module';
+import { FileUploadModule } from './file-upload/file-upload.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { HealthModule } from './health/health.module';
     ThrottlerModule,
     HealthModule,
     AuthModule,
+    FileUploadModule,
   ],
   controllers: [],
   providers: [
@@ -82,6 +84,7 @@ import { HealthModule } from './health/health.module';
     CorrelationIdMiddleware,
     RequestLoggerMiddleware,
     CaslAbilityFactory,
+    FileUploadModule,
   ],
 })
 export class SharedModule {}
