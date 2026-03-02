@@ -13,9 +13,16 @@ import {
   LoggingInterceptor,
   ResponseTransformInterceptor,
   TimeoutInterceptor,
+  AuditInterceptor,
 } from '@org.triply/shared';
 import { appConfig } from './config/app.config';
 import { FlightsModule } from './modules/flights/flights.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { BusinessModule } from './modules/business/business.module';
+import { OnboardingModule } from './modules/onboarding/onboarding.module';
+import { AdminModule } from './modules/admin/admin.module';
+import { ApiAuditModule } from './modules/audit/audit.module';
+import { UsersModule } from './modules/users/users.module';
 
 @Module({
   imports: [
@@ -68,6 +75,12 @@ import { FlightsModule } from './modules/flights/flights.module';
     SharedModule,
 
     // ── Feature Modules ──────────────────────────────────
+    AuthModule,
+    UsersModule,
+    BusinessModule,
+    OnboardingModule,
+    AdminModule,
+    ApiAuditModule,
     FlightsModule,
   ],
   providers: [
@@ -75,6 +88,7 @@ import { FlightsModule } from './modules/flights/flights.module';
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },
     { provide: APP_INTERCEPTOR, useClass: ResponseTransformInterceptor },
+    { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
     { provide: APP_INTERCEPTOR, useValue: new TimeoutInterceptor(30_000) },
   ],
 })
