@@ -9,6 +9,22 @@ export const env = arkenv({
   MONGODB_URI: type('string'),
   REDIS_URL: type('string'),
 
+  // ── File Upload / Storage ──────────────────────────
+  STORAGE_PROVIDER: type('string').default('local'),
+  FILE_UPLOAD_MAX_SIZE: type('number').default(20971520),
+  FILE_UPLOAD_DEFAULT_FOLDER: type('string').default('general'),
+  FILE_UPLOAD_ALLOWED_MIME_TYPES: type('string').default(''),
+  FILE_UPLOAD_EXTRA_MIME_TYPES: type('string').default(''),
+  LOCAL_UPLOAD_ROOT: type('string').default('./uploads'),
+  LOCAL_UPLOAD_BASE_URL: type('string').default('/uploads'),
+  S3_ENDPOINT: type('string').default(''),
+  S3_BUCKET: type('string').default(''),
+  S3_REGION: type('string').default('us-east-1'),
+  S3_ACCESS_KEY: type('string').default(''),
+  S3_SECRET_KEY: type('string').default(''),
+  S3_FORCE_PATH_STYLE: type('boolean').default(false),
+  S3_PUBLIC_URL: type('string').default(''),
+
   // ── JWT Authentication ─────────────────────────────────
   JWT_SECRET: type('string'),
   JWT_REFRESH_SECRET: type('string'),

@@ -1,7 +1,19 @@
 // apps/triply.api/src/modules/onboarding/onboarding.controller.ts
-import { Body, Controller, Param, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Param,
+  Post,
+  Req,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
   ApiOperation,
   ApiResponse,
   ApiTags,
@@ -9,17 +21,21 @@ import {
 import {
   BusinessInitDto,
   KycDetailsDto,
+  KycDocumentType,
   KycDocumentsDto,
   Permission,
 } from '@org.triply/database';
 import {
   CurrentUser,
+  FILE_UPLOAD_FIELD_NAME,
+  type UploadedStoredFile,
   JwtAuthGuard,
   PermissionsGuard,
   RequirePermissions,
 } from '@org.triply/shared';
 import type { Request } from 'express';
 import type { JwtPayload } from '@org.triply/shared';
+import { UploadKycDocumentFileDto } from './dto/upload-kyc-document-file.dto';
 import { OnboardingService } from './onboarding.service';
 
 @ApiTags('Onboarding')
@@ -74,6 +90,50 @@ export class OnboardingController {
       user,
       businessId,
       dto,
+      request,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @Post(':businessId/kyc/documents/upload')
+  @UseInterceptors(FileInterceptor(FILE_UPLOAD_FIELD_NAME))
+  @ApiBearerAuth()
+  @RequirePermissions(Permission.KYC_SUBMIT)
+  @ApiOperation({ summary: 'Upload a single KYC document file' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['type', FILE_UPLOAD_FIELD_NAME],
+      properties: {
+        type: {
+          type: 'string',
+          enum: Object.values(KycDocumentType),
+        },
+        file: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+    },
+  })
+  async uploadKycDocumentFile(
+    @CurrentUser() user: JwtPayload,
+    @Param('businessId') businessId: string,
+    @Body() dto: UploadKycDocumentFileDto,
+    @UploadedFile() file: UploadedStoredFile | undefined,
+    @Req() request: Request,
+  ): Promise<{
+    fileId: string;
+    url: string;
+    type: KycDocumentType;
+    nextStep: string;
+  }> {
+    return this.onboardingService.uploadKycDocumentFile(
+      user,
+      businessId,
+      dto,
+      file,
       request,
     );
   }

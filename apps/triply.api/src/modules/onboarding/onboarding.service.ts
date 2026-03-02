@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import type { Request } from 'express';
+import { Types } from 'mongoose';
 import {
   AuditAction,
   BusinessInitDto,
@@ -22,7 +23,13 @@ import {
   UserRepository,
 } from '@org.triply/database';
 import type { JwtPayload } from '@org.triply/shared';
-import { AuditService, MailService } from '@org.triply/shared';
+import {
+  AuditService,
+  FilesService,
+  MailService,
+  type UploadedStoredFile,
+} from '@org.triply/shared';
+import { UploadKycDocumentFileDto } from './dto/upload-kyc-document-file.dto';
 
 @Injectable()
 export class OnboardingService {
@@ -33,6 +40,7 @@ export class OnboardingService {
     private readonly userRepository: UserRepository,
     private readonly auditService: AuditService,
     private readonly mailService: MailService,
+    private readonly filesService: FilesService,
   ) {}
 
   /**
@@ -188,6 +196,68 @@ export class OnboardingService {
 
     return {
       uploadedCount: dto.documents.length,
+      nextStep: 'submit',
+    };
+  }
+
+  /**
+   * Step 3 (alternative) - Upload a single KYC document file.
+   */
+  async uploadKycDocumentFile(
+    actor: JwtPayload,
+    businessId: string,
+    dto: UploadKycDocumentFileDto,
+    file: UploadedStoredFile | undefined,
+    request?: Request,
+  ): Promise<{
+    fileId: string;
+    url: string;
+    type: KycDocumentType;
+    nextStep: string;
+  }> {
+    await this.assertBusinessOwner(actor, businessId);
+
+    const business = await this.businessRepository.findById(businessId);
+    if (!business) {
+      throw new NotFoundException('Business not found');
+    }
+
+    const storedFile = await this.filesService.registerUploadedFile(file);
+
+    try {
+      await this.businessRepository.addKycDocument(businessId, {
+        type: dto.type,
+        url: storedFile.url,
+        fileId: new Types.ObjectId(storedFile.id),
+        uploadedAt: new Date(),
+        verified: false,
+      });
+    } catch (error) {
+      await this.filesService.deleteFile(storedFile.id, {
+        suppressNotFound: true,
+      });
+      throw error;
+    }
+
+    await this.auditService.log(
+      {
+        action: AuditAction.KYC_DOCUMENTS_UPLOADED,
+        resource: 'Business',
+        resourceId: businessId,
+        metadata: {
+          uploadedCount: 1,
+          type: dto.type,
+          fileId: storedFile.id,
+        },
+      },
+      actor,
+      request,
+    );
+
+    return {
+      fileId: storedFile.id,
+      url: storedFile.url,
+      type: dto.type,
       nextStep: 'submit',
     };
   }

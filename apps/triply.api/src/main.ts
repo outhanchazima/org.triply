@@ -2,7 +2,9 @@ import { Logger, ValidationPipe, VersioningType } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { resolve } from 'node:path';
 import compression from 'compression';
+import { static as serveStatic } from 'express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 
@@ -30,6 +32,30 @@ async function bootstrap() {
     credentials: true,
     maxAge: 3600,
   });
+
+  // ── Local Uploads (filesystem fallback) ─────────────
+  const storageProvider = configService
+    .get<string>('STORAGE_PROVIDER', 'local')
+    .toLowerCase();
+
+  if (storageProvider !== 's3') {
+    const localUploadRoot = resolve(
+      process.cwd(),
+      configService.get<string>('LOCAL_UPLOAD_ROOT', './uploads'),
+    );
+    const localUploadBase = configService.get<string>(
+      'LOCAL_UPLOAD_BASE_URL',
+      '/uploads',
+    );
+    const localUploadPath = localUploadBase.startsWith('http')
+      ? new URL(localUploadBase).pathname
+      : localUploadBase;
+
+    app.use(localUploadPath, serveStatic(localUploadRoot));
+    logger.log(
+      `Serving local uploads from ${localUploadRoot} at ${localUploadPath}`,
+    );
+  }
 
   // ── Global Prefix & Versioning ───────────────────────
   app.setGlobalPrefix(appConfig.prefix, {
