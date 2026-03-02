@@ -13,6 +13,7 @@ import { MongoService } from '../services/mongo.service';
 export interface AuditLogFilters {
   actorId?: string;
   resource?: string;
+  resourceId?: string;
   action?: AuditAction;
   businessId?: string;
   from?: Date;
@@ -125,8 +126,23 @@ export class AuditLogRepository extends BaseMongoRepository<AuditLogDocument> {
       query.resource = filters.resource;
     }
 
+    if (filters.resourceId) {
+      query.resourceId = filters.resourceId;
+    }
+
     if (filters.action) {
       query.action = filters.action;
+    }
+
+    if (filters.businessId) {
+      query.$or = [
+        { 'metadata.businessId': filters.businessId },
+        { resource: 'Business', resourceId: filters.businessId },
+        {
+          resource: 'BusinessMembership',
+          'metadata.businessId': filters.businessId,
+        },
+      ];
     }
 
     if (filters.from || filters.to) {

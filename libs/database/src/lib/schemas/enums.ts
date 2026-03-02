@@ -290,13 +290,16 @@ export function computeFeatureFlags(permissions: Permission[]): FeatureFlags {
   const has = (p: Permission) => permissions.includes(p);
 
   const isReadOnly =
-    permissions.some((p) => p.startsWith('read')) &&
+    permissions.some((p) => p.includes(':read')) &&
     !permissions.some(
       (p) =>
         p.includes('create') ||
         p.includes('update') ||
         p.includes('delete') ||
-        p.includes('manage'),
+        p.includes('manage') ||
+        p.includes('approve') ||
+        p.includes('reject') ||
+        p.includes('suspend'),
     );
 
   return {

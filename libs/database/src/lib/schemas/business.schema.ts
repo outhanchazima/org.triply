@@ -19,10 +19,10 @@ export interface Address {
 }
 
 export interface KycData {
-  businessType: BusinessType;
+  businessType: BusinessType | null;
   taxId: string | null;
   incorporationDate: Date | null;
-  address: Address;
+  address: Address | null;
   documents: KycDocument[];
   submittedAt: Date | null;
   reviewedAt: Date | null;
@@ -73,11 +73,11 @@ export class Business extends Document {
       taxId: { type: String, default: null },
       incorporationDate: { type: Date, default: null },
       address: {
-        street: { type: String, required: true },
-        city: { type: String, required: true },
-        state: { type: String, required: true },
-        country: { type: String, required: true },
-        postalCode: { type: String, required: true },
+        street: { type: String, default: null },
+        city: { type: String, default: null },
+        state: { type: String, default: null },
+        country: { type: String, default: null },
+        postalCode: { type: String, default: null },
       },
       documents: [
         {
@@ -93,7 +93,15 @@ export class Business extends Document {
       rejectionReason: { type: String, default: null },
     },
     default: () => ({
+      businessType: null,
+      taxId: null,
+      incorporationDate: null,
+      address: null,
       documents: [],
+      submittedAt: null,
+      reviewedAt: null,
+      reviewedBy: null,
+      rejectionReason: null,
     }),
   })
   kyc!: KycData;

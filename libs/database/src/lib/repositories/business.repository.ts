@@ -98,8 +98,16 @@ export class BusinessRepository extends BaseMongoRepository<BusinessDocument> {
     id: string | Types.ObjectId,
     kycData: Partial<Business['kyc']>,
   ): Promise<BusinessDocument | null> {
+    const setData = Object.entries(kycData).reduce(
+      (acc, [key, value]) => {
+        acc[`kyc.${key}`] = value;
+        return acc;
+      },
+      {} as Record<string, unknown>,
+    );
+
     return this.model
-      .findByIdAndUpdate(id, { $set: { kyc: { ...kycData } } }, { new: true })
+      .findByIdAndUpdate(id, { $set: setData }, { new: true })
       .exec();
   }
 

@@ -30,6 +30,18 @@ export class UserRepository extends BaseMongoRepository<UserDocument> {
   }
 
   /**
+   * Find user by email including OTP fields (otpCode, otpExpires, otpPurpose)
+   * @param email User email to search for
+   * @returns User document with OTP fields or null
+   */
+  async findByEmailWithOtp(email: string): Promise<UserDocument | null> {
+    return this.model
+      .findOne({ email: email.toLowerCase().trim() })
+      .select('+otpCode +otpExpires +otpPurpose')
+      .exec();
+  }
+
+  /**
    * Find user by Google OAuth ID
    * @param googleId Google OAuth ID
    * @returns User document or null
@@ -140,6 +152,21 @@ export class UserRepository extends BaseMongoRepository<UserDocument> {
         googleId,
         $addToSet: { authProviders: 'google' },
       },
+    );
+  }
+
+  /**
+   * Add an authentication provider to the user
+   * @param email User email
+   * @param provider Provider name ('otp' or 'google')
+   */
+  async addAuthProvider(
+    email: string,
+    provider: 'otp' | 'google',
+  ): Promise<void> {
+    await this.model.updateOne(
+      { email: email.toLowerCase().trim() },
+      { $addToSet: { authProviders: provider } },
     );
   }
 

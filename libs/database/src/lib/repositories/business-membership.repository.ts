@@ -150,6 +150,50 @@ export class BusinessMembershipRepository extends BaseMongoRepository<BusinessMe
   }
 
   /**
+   * Create or update an invitation membership.
+   * If membership exists and is already active, it is returned unchanged.
+   * @param userId User ID
+   * @param businessId Business ID
+   * @param role Invited role
+   * @param invitedBy Inviter user ID
+   * @returns Upserted membership
+   */
+  async upsertInvitation(
+    userId: string | Types.ObjectId,
+    businessId: string | Types.ObjectId,
+    role: BusinessRole,
+    invitedBy: string | Types.ObjectId,
+  ): Promise<BusinessMembershipDocument> {
+    const existing = await this.findByUserAndBusiness(userId, businessId);
+    if (existing && existing.status === MembershipStatus.ACTIVE) {
+      return existing;
+    }
+
+    const membership = await this.model
+      .findOneAndUpdate(
+        { userId, businessId },
+        {
+          role,
+          status: MembershipStatus.INVITED,
+          invitedBy,
+          invitedAt: new Date(),
+        },
+        {
+          new: true,
+          upsert: true,
+          setDefaultsOnInsert: true,
+        },
+      )
+      .exec();
+
+    if (!membership) {
+      throw new Error('Failed to create membership invitation');
+    }
+
+    return membership;
+  }
+
+  /**
    * Mark member as left (soft delete)
    * @param userId User ID
    * @param businessId Business ID
