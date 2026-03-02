@@ -30,8 +30,7 @@
           "buildDepsName": "build-deps",
           "watchDepsName": "watch-deps"
         }
-      },
-      "exclude": ["libs/amadeus/*"]
+      }
     },
     {
       "plugin": "@nx/webpack/plugin",
@@ -55,15 +54,6 @@
         "targetName": "test"
       },
       "exclude": ["apps/triply.api-e2e/**/*", "apps/triply.payments-e2e/**/*"]
-    },
-    {
-      "plugin": "@nx/js/typescript",
-      "include": ["libs/amadeus/*"],
-      "options": {
-        "typecheck": {
-          "targetName": "typecheck"
-        }
-      }
     }
   ],
   "targetDefaults": {
