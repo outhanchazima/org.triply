@@ -88,6 +88,7 @@ export * from './lib/schemas/business.schema';
 export * from './lib/schemas/business-membership.schema';
 export * from './lib/schemas/refresh-token.schema';
 export * from './lib/schemas/audit-log.schema';
+export * from './lib/schemas/file-asset.schema';
 
 /**
  * Auth Repositories
@@ -100,6 +101,7 @@ export * from './lib/repositories/business.repository';
 export * from './lib/repositories/business-membership.repository';
 export * from './lib/repositories/refresh-token.repository';
 export * from './lib/repositories/audit-log.repository';
+export * from './lib/repositories/file-asset.repository';
 
 /**
  * Auth DTOs

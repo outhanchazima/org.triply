@@ -24,3 +24,4 @@ export * from './business.schema';
 export * from './business-membership.schema';
 export * from './refresh-token.schema';
 export * from './audit-log.schema';
+export * from './file-asset.schema';

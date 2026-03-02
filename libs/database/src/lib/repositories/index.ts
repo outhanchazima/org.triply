@@ -24,3 +24,4 @@ export * from './business.repository';
 export * from './business-membership.repository';
 export * from './refresh-token.repository';
 export * from './audit-log.repository';
+export * from './file-asset.repository';

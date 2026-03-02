@@ -97,6 +97,7 @@ import { SystemUserProfileRepository } from '../repositories/system-user-profile
 import { BusinessRepository } from '../repositories/business.repository';
 import { BusinessMembershipRepository } from '../repositories/business-membership.repository';
 import { AuditLogRepository } from '../repositories/audit-log.repository';
+import { FileAssetRepository } from '../repositories/file-asset.repository';
 
 /**
  * Authentication Database Module
@@ -138,6 +139,7 @@ import { AuditLogRepository } from '../repositories/audit-log.repository';
     BusinessRepository,
     BusinessMembershipRepository,
     AuditLogRepository,
+    FileAssetRepository,
   ],
   exports: [
     UserRepository,
@@ -147,6 +149,7 @@ import { AuditLogRepository } from '../repositories/audit-log.repository';
     BusinessRepository,
     BusinessMembershipRepository,
     AuditLogRepository,
+    FileAssetRepository,
   ],
 })
 export class AuthDatabaseModule {}

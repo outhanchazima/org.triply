@@ -6,6 +6,7 @@ import { BusinessStatus, BusinessType, KycDocumentType } from './enums';
 export interface KycDocument {
   type: KycDocumentType;
   url: string;
+  fileId?: Types.ObjectId | null;
   uploadedAt: Date;
   verified: boolean;
 }
@@ -83,6 +84,7 @@ export class Business extends Document {
         {
           type: { type: String, enum: Object.values(KycDocumentType) },
           url: { type: String, required: true },
+          fileId: { type: Types.ObjectId, ref: 'FileAsset', default: null },
           uploadedAt: { type: Date, default: Date.now },
           verified: { type: Boolean, default: false },
         },
