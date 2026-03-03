@@ -67,6 +67,72 @@ export class UserRepository extends BaseMongoRepository<UserDocument> {
       .exec();
   }
 
+  /**
+   * Update user by ID
+   * @param id User ID
+   * @param data Partial user data to update
+   * @returns Updated user document or null
+   */
+  async updateById(
+    id: string | Types.ObjectId,
+    data: Partial<User>,
+  ): Promise<UserDocument | null> {
+    return this.model.findByIdAndUpdate(id, data, { new: true }).exec();
+  }
+
+  /**
+   * Find users with optional filters and pagination
+   * @param filters Query filters
+   * @param page Page number (1-based)
+   * @param limit Page size
+   * @returns Paginated users and total count
+   */
+  async findUsers(
+    filters: {
+      email?: string;
+      isTraveller?: boolean;
+      isSystemUser?: boolean;
+      isActive?: boolean;
+    } = {},
+    page = 1,
+    limit = 20,
+  ): Promise<{ users: UserDocument[]; total: number }> {
+    const query: Record<string, unknown> = {};
+
+    if (typeof filters.isTraveller === 'boolean') {
+      query.isTraveller = filters.isTraveller;
+    }
+
+    if (typeof filters.isSystemUser === 'boolean') {
+      query.isSystemUser = filters.isSystemUser;
+    }
+
+    if (typeof filters.isActive === 'boolean') {
+      query.isActive = filters.isActive;
+    }
+
+    if (filters.email) {
+      query.email = {
+        $regex: filters.email.toLowerCase().trim(),
+        $options: 'i',
+      };
+    }
+
+    const skip = (Math.max(page, 1) - 1) * Math.max(limit, 1);
+
+    const [users, total] = await Promise.all([
+      this.model
+        .find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(Math.max(limit, 1))
+        .exec(),
+      this.model.countDocuments(query),
+    ]);
+
+    return { users, total };
+  }
+
   async findActiveTravellers(): Promise<UserDocument[]> {
     return this.model.find({ isActive: true, isTraveller: true }).exec();
   }

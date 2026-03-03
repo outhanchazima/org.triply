@@ -9,6 +9,7 @@ import {
   PermissionsGuard,
   BusinessContextGuard,
   SystemUserGuard,
+  SelfOrAdminGuard,
 } from './auth/guards';
 import { CaslAbilityFactory, PoliciesGuard } from './auth/casl';
 import { AuthModule } from './auth/auth.module';
@@ -64,6 +65,7 @@ import { FileUploadModule } from './file-upload/file-upload.module';
     PermissionsGuard,
     BusinessContextGuard,
     SystemUserGuard,
+    SelfOrAdminGuard,
     PoliciesGuard,
   ],
   exports: [
@@ -75,6 +77,7 @@ import { FileUploadModule } from './file-upload/file-upload.module';
     PermissionsGuard,
     BusinessContextGuard,
     SystemUserGuard,
+    SelfOrAdminGuard,
     PoliciesGuard,
     LoggingInterceptor,
     ResponseTransformInterceptor,

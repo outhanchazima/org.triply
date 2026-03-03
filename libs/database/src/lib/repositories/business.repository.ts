@@ -29,6 +29,19 @@ export class BusinessRepository extends BaseMongoRepository<BusinessDocument> {
   }
 
   /**
+   * Update business by ID
+   * @param id Business ID
+   * @param data Partial business fields to update
+   * @returns Updated business document or null
+   */
+  async updateById(
+    id: string | Types.ObjectId,
+    data: Partial<Business>,
+  ): Promise<BusinessDocument | null> {
+    return this.model.findByIdAndUpdate(id, data, { new: true }).exec();
+  }
+
+  /**
    * Find business by registration number
    * @param registrationNumber Business registration number
    * @returns Business document or null
