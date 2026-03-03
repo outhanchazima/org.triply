@@ -210,6 +210,26 @@ nx lint database
 nx run database:build --with-deps
 ```
 
+## Approval Workflow Seed Data
+
+Seed initial approval workflow policies (system + business defaults):
+
+```bash
+npm run seed:approval-policies
+```
+
+Preview only (no writes):
+
+```bash
+npm run seed:approval-policies:dry-run
+```
+
+Optional flags:
+
+- `--force`
+- `--system-only`
+- `--actor-email=<email>`
+
 ## Contributing
 
 When adding new features to this library:

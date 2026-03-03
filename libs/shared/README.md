@@ -1,6 +1,6 @@
 # @org.triply/shared
 
-Shared NestJS library for the OrgTriply backend monorepo. Provides reusable utilities, NestJS building blocks (filters, interceptors, decorators, pipes, middleware), standardised API response types, caching, and an HTTP request service.
+Shared NestJS library for the OrgTriply backend monorepo. Provides reusable utilities, auth and authorization infrastructure, audit integration, file upload support, mail integration, and common NestJS building blocks (filters, interceptors, decorators, pipes, middleware).
 
 ## Quick start
 
@@ -21,13 +21,17 @@ export class AppModule {}
 
 ```
 libs/shared/src/lib/
+├── auth/              # JWT/Google strategies, guards, decorators, controllers, CASL
+├── audit/             # Audit decorator, interceptor, service integration
 ├── config/            # App config factory & env validation
 ├── constants/         # PAGINATION_DEFAULTS, CORS_DEFAULTS, RATE_LIMIT_DEFAULTS, REQUEST_TIMEOUT_MS
 ├── decorators/        # @Public, @ApiPaginatedResponse, @RequestId
 ├── dto/               # PaginationQueryDto
 ├── filters/           # HttpExceptionFilter, AllExceptionsFilter
+├── file-upload/       # Upload controller, storage adapters, file metadata services
 ├── health/            # HealthModule & HealthController
 ├── interceptors/      # ResponseTransformInterceptor, LoggingInterceptor, TimeoutInterceptor
+├── mail/              # MailModule + transactional email service/templates
 ├── interfaces/        # ApiSuccessResponse, ApiErrorResponse, PaginatedResponse, PaginationMeta
 ├── middleware/         # CorrelationIdMiddleware, RequestLoggerMiddleware
 ├── pipes/             # TrimStringPipe, ParseOptionalIntPipe
