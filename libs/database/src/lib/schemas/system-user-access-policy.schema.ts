@@ -51,5 +51,3 @@ export class SystemUserAccessPolicy extends Document {
 export const SystemUserAccessPolicySchema = SchemaFactory.createForClass(
   SystemUserAccessPolicy,
 );
-
-SystemUserAccessPolicySchema.index({ userId: 1 }, { unique: true });
