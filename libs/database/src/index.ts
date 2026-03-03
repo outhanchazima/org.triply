@@ -38,6 +38,7 @@ export * from './lib/database.module';
  * @description Database-related constants and tokens
  */
 export * from './lib/database.constants';
+export * from './lib/constants/approval-policy.constants';
 
 /**
  * Interfaces and Types
@@ -86,9 +87,13 @@ export * from './lib/schemas/traveller-profile.schema';
 export * from './lib/schemas/system-user-profile.schema';
 export * from './lib/schemas/business.schema';
 export * from './lib/schemas/business-membership.schema';
+export * from './lib/schemas/business-role-template.schema';
 export * from './lib/schemas/refresh-token.schema';
 export * from './lib/schemas/audit-log.schema';
 export * from './lib/schemas/file-asset.schema';
+export * from './lib/schemas/admin-approval.schema';
+export * from './lib/schemas/system-user-access-policy.schema';
+export * from './lib/schemas/approval-policy.schema';
 
 /**
  * Auth Repositories
@@ -99,9 +104,13 @@ export * from './lib/repositories/traveller-profile.repository';
 export * from './lib/repositories/system-user-profile.repository';
 export * from './lib/repositories/business.repository';
 export * from './lib/repositories/business-membership.repository';
+export * from './lib/repositories/business-role-template.repository';
 export * from './lib/repositories/refresh-token.repository';
 export * from './lib/repositories/audit-log.repository';
 export * from './lib/repositories/file-asset.repository';
+export * from './lib/repositories/admin-approval.repository';
+export * from './lib/repositories/system-user-access-policy.repository';
+export * from './lib/repositories/approval-policy.repository';
 
 /**
  * Auth DTOs

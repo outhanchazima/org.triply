@@ -3,12 +3,16 @@ import {
   Controller,
   Post,
   Get,
+  Delete,
   Body,
+  HttpException,
   UseGuards,
   Req,
   Ip,
   Headers,
   Res,
+  Param,
+  Query,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import {
@@ -31,6 +35,8 @@ import {
   SafeUserDto,
   AuthContextDto,
   OtpPurpose,
+  SessionsQueryDto,
+  SessionInfoDto,
 } from '@org.triply/database';
 import { AuthService } from './services/auth.service';
 import { Public } from './decorators/public.decorator';
@@ -89,6 +95,50 @@ export class AuthController {
   }
 
   /**
+   * Send step-up OTP for suspicious login verification.
+   */
+  @Public()
+  @Post('step-up/send')
+  @Throttle({ default: { limit: 3, ttl: 600000 } })
+  @ApiOperation({ summary: 'Send step-up OTP for risk-based verification' })
+  @ApiResponse({ status: 200, description: 'Step-up OTP sent successfully' })
+  async sendStepUpOtp(
+    @Body() dto: SendOtpDto,
+    @Req() request: Request,
+  ): Promise<{ message: string; expiresIn: number }> {
+    return this.authService.sendOtp(
+      dto.email,
+      OtpPurpose.VERIFY_EMAIL,
+      request,
+    );
+  }
+
+  /**
+   * Verify step-up OTP after unusual Google login.
+   */
+  @Public()
+  @Post('step-up/verify')
+  @ApiOperation({ summary: 'Verify step-up OTP and complete login' })
+  @ApiResponse({
+    status: 200,
+    description: 'Step-up verified, tokens issued',
+    type: AuthResponseDto,
+  })
+  async verifyStepUpOtp(
+    @Body() dto: VerifyOtpDto,
+    @Ip() ip: string,
+    @Req() request: Request,
+  ): Promise<AuthResponseDto> {
+    return this.authService.verifyStepUpOtp(
+      dto.email,
+      dto.otp,
+      dto.deviceInfo,
+      ip,
+      request,
+    );
+  }
+
+  /**
    * Google OAuth redirect
    */
   @Public()
@@ -126,22 +176,48 @@ export class AuthController {
       return;
     }
 
-    const auth = await this.authService.handleGoogleAuth(
-      request.user,
-      userAgent,
-      ip,
-      request,
-    );
+    try {
+      const auth = await this.authService.handleGoogleAuth(
+        request.user,
+        userAgent,
+        ip,
+        request,
+      );
 
-    const appUrl = this.configService.get<string>(
-      'APP_URL',
-      'http://localhost:4200',
-    );
-    const redirectUrl = new URL('/auth/callback', appUrl);
-    redirectUrl.searchParams.set('token', auth.accessToken);
-    redirectUrl.searchParams.set('refresh', auth.refreshToken);
+      const appUrl = this.configService.get<string>(
+        'APP_URL',
+        'http://localhost:4200',
+      );
+      const redirectUrl = new URL('/auth/callback', appUrl);
+      redirectUrl.searchParams.set('token', auth.accessToken);
+      redirectUrl.searchParams.set('refresh', auth.refreshToken);
 
-    response.redirect(redirectUrl.toString());
+      response.redirect(redirectUrl.toString());
+    } catch (error) {
+      const appUrl = this.configService.get<string>(
+        'APP_URL',
+        'http://localhost:4200',
+      );
+      const redirectUrl = new URL('/auth/callback', appUrl);
+
+      if (error instanceof HttpException && error.getStatus() === 428) {
+        const payload = error.getResponse();
+        const details =
+          payload && typeof payload === 'object'
+            ? (payload as Record<string, unknown>)
+            : {};
+
+        redirectUrl.searchParams.set('stepUpRequired', 'true');
+        if (typeof details.email === 'string') {
+          redirectUrl.searchParams.set('email', details.email);
+        }
+        response.redirect(redirectUrl.toString());
+        return;
+      }
+
+      redirectUrl.searchParams.set('error', 'google_auth_failed');
+      response.redirect(redirectUrl.toString());
+    }
   }
 
   /**
@@ -207,6 +283,62 @@ export class AuthController {
     @Body() dto?: RefreshTokenDto,
   ): Promise<{ message: string }> {
     return this.authService.logout(user.sub, dto?.refreshToken, request);
+  }
+
+  /**
+   * List active sessions/devices.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('sessions')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'List active sessions/devices' })
+  @ApiResponse({ status: 200, description: 'Active sessions returned' })
+  async getSessions(
+    @CurrentUser() user: JwtPayload,
+    @Query() query: SessionsQueryDto,
+  ): Promise<{ userId: string; sessions: SessionInfoDto[] }> {
+    return this.authService.listSessions(user, query.userId);
+  }
+
+  /**
+   * Revoke one session/device by session ID.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Delete('sessions/:sessionId')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Revoke one active session/device' })
+  @ApiResponse({ status: 200, description: 'Session revoked successfully' })
+  async revokeSession(
+    @CurrentUser() user: JwtPayload,
+    @Param('sessionId') sessionId: string,
+    @Query() query: SessionsQueryDto,
+    @Req() request: Request,
+  ): Promise<{ message: string }> {
+    return this.authService.revokeSession(
+      user,
+      sessionId,
+      query.userId,
+      request,
+    );
+  }
+
+  /**
+   * Revoke all active sessions/devices.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Delete('sessions')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Revoke all active sessions/devices' })
+  @ApiResponse({
+    status: 200,
+    description: 'All sessions revoked successfully',
+  })
+  async revokeAllSessions(
+    @CurrentUser() user: JwtPayload,
+    @Query() query: SessionsQueryDto,
+    @Req() request: Request,
+  ): Promise<{ message: string; revokedCount: number }> {
+    return this.authService.revokeAllSessions(user, query.userId, request);
   }
 
   /**

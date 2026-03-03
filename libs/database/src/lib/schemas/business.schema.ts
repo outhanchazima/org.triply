@@ -31,6 +31,16 @@ export interface KycData {
   rejectionReason: string | null;
 }
 
+export type OwnershipTransferStatus = 'none' | 'pending' | 'accepted';
+
+export interface OwnershipTransferData {
+  status: OwnershipTransferStatus;
+  proposedOwnerId: Types.ObjectId | null;
+  initiatedBy: Types.ObjectId | null;
+  initiatedAt: Date | null;
+  acceptedAt: Date | null;
+}
+
 export type BusinessDocument = HydratedDocument<Business>;
 
 @Schema({
@@ -117,6 +127,28 @@ export class Business extends Document {
   @Prop({ type: String, default: null, trim: true })
   industry!: string | null;
 
+  @Prop({
+    type: {
+      status: {
+        type: String,
+        enum: ['none', 'pending', 'accepted'],
+        default: 'none',
+      },
+      proposedOwnerId: { type: Types.ObjectId, ref: 'User', default: null },
+      initiatedBy: { type: Types.ObjectId, ref: 'User', default: null },
+      initiatedAt: { type: Date, default: null },
+      acceptedAt: { type: Date, default: null },
+    },
+    default: () => ({
+      status: 'none',
+      proposedOwnerId: null,
+      initiatedBy: null,
+      initiatedAt: null,
+      acceptedAt: null,
+    }),
+  })
+  ownershipTransfer!: OwnershipTransferData;
+
   createdAt!: Date;
   updatedAt!: Date;
 }
@@ -125,4 +157,5 @@ export const BusinessSchema = SchemaFactory.createForClass(Business);
 
 // Indexes
 BusinessSchema.index({ 'kyc.businessType': 1 });
+BusinessSchema.index({ 'ownershipTransfer.status': 1 });
 BusinessSchema.index({ createdAt: -1 });

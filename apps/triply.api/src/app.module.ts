@@ -14,6 +14,7 @@ import {
   ResponseTransformInterceptor,
   TimeoutInterceptor,
   AuditInterceptor,
+  IdempotencyInterceptor,
 } from '@org.triply/shared';
 import { appConfig } from './config/app.config';
 import { FlightsModule } from './modules/flights/flights.module';
@@ -87,6 +88,7 @@ import { UsersModule } from './modules/users/users.module';
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },
+    { provide: APP_INTERCEPTOR, useClass: IdempotencyInterceptor },
     { provide: APP_INTERCEPTOR, useClass: ResponseTransformInterceptor },
     { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
     { provide: APP_INTERCEPTOR, useValue: new TimeoutInterceptor(30_000) },

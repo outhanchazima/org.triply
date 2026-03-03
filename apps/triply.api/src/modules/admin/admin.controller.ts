@@ -33,11 +33,21 @@ import type { Request } from 'express';
 import type { JwtPayload } from '@org.triply/shared';
 import {
   AdminService,
+  AdminApprovalResponse,
+  PendingApprovalResponse,
   PendingKycBusinessResponse,
+  SystemApprovalPolicyResponse,
+  SystemUserAccessPolicyResponse,
   SystemUserResponse,
 } from './admin.service';
+import { AdminApprovalsQueryDto } from './dto/admin-approvals-query.dto';
+import { ApproveAdminActionDto } from './dto/approve-admin-action.dto';
+import { HighRiskApprovalQueryDto } from './dto/high-risk-approval-query.dto';
+import { RejectAdminActionDto } from './dto/reject-admin-action.dto';
 import { SystemUsersQueryDto } from './dto/system-users-query.dto';
 import { UpdateSystemUserDto } from './dto/update-system-user.dto';
+import { UpdateSystemUserAccessPolicyDto } from './dto/update-system-user-access-policy.dto';
+import { UpsertSystemApprovalPolicyDto } from './dto/upsert-system-approval-policy.dto';
 
 @ApiTags('Admin')
 @ApiBearerAuth()
@@ -74,9 +84,23 @@ export class AdminController {
   async suspendBusiness(
     @CurrentUser() user: JwtPayload,
     @Param('id') businessId: string,
+    @Query() query: HighRiskApprovalQueryDto,
     @Req() request: Request,
-  ): Promise<{ id: string; status: string; message: string }> {
-    return this.adminService.suspendBusiness(user, businessId, request);
+  ): Promise<
+    | {
+        id: string;
+        status: string;
+        message: string;
+        requiresApproval: false;
+      }
+    | ({ id: string } & PendingApprovalResponse)
+  > {
+    return this.adminService.suspendBusiness(
+      user,
+      businessId,
+      query.approvalId,
+      request,
+    );
   }
 
   @Patch('businesses/:id/reactivate')
@@ -98,9 +122,27 @@ export class AdminController {
   async createSystemUser(
     @CurrentUser() user: JwtPayload,
     @Body() dto: CreateSystemUserDto,
+    @Query() query: HighRiskApprovalQueryDto,
     @Req() request: Request,
-  ): Promise<{ id: string; email: string; role: SystemRole }> {
-    return this.adminService.createSystemUser(user, dto, request);
+  ): Promise<
+    | {
+        id: string;
+        email: string;
+        role: SystemRole;
+        requiresApproval: false;
+      }
+    | ({
+        id: null;
+        email: string;
+        role: SystemRole;
+      } & PendingApprovalResponse)
+  > {
+    return this.adminService.createSystemUser(
+      user,
+      dto,
+      query.approvalId,
+      request,
+    );
   }
 
   @Get('system-users')
@@ -134,5 +176,127 @@ export class AdminController {
     @Req() request: Request,
   ): Promise<SystemUserResponse> {
     return this.adminService.updateSystemUser(actor, userId, dto, request);
+  }
+
+  @Get('approvals')
+  @RequirePermissions(Permission.SYSTEM_MANAGE)
+  @ApiOperation({ summary: 'List high-risk dual-control approval requests' })
+  @ApiResponse({ status: 200, description: 'Approval requests returned' })
+  async listApprovals(
+    @CurrentUser() actor: JwtPayload,
+    @Query() query: AdminApprovalsQueryDto,
+  ): Promise<{
+    approvals: AdminApprovalResponse[];
+    total: number;
+    page: number;
+    limit: number;
+  }> {
+    return this.adminService.listApprovalRequests(actor, {
+      status: query.status,
+      actionType: query.actionType,
+      actionKey: query.actionKey,
+      scope: query.scope,
+      businessId: query.businessId,
+      page: query.page ? Number(query.page) : 1,
+      limit: query.limit ? Number(query.limit) : 20,
+    });
+  }
+
+  @Get('approval-policies')
+  @RequirePermissions(Permission.SYSTEM_MANAGE)
+  @ApiOperation({ summary: 'List system approval workflow policies' })
+  @ApiResponse({
+    status: 200,
+    description: 'System approval policies returned',
+  })
+  async listSystemApprovalPolicies(
+    @CurrentUser() actor: JwtPayload,
+  ): Promise<SystemApprovalPolicyResponse[]> {
+    return this.adminService.listSystemApprovalPolicies(actor);
+  }
+
+  @Patch('approval-policies/:actionKey')
+  @RequirePermissions(Permission.SYSTEM_MANAGE)
+  @ApiOperation({
+    summary: 'Upsert a system approval workflow policy by action key',
+  })
+  @ApiResponse({ status: 200, description: 'System approval policy upserted' })
+  async upsertSystemApprovalPolicy(
+    @CurrentUser() actor: JwtPayload,
+    @Param('actionKey') actionKey: string,
+    @Body() dto: UpsertSystemApprovalPolicyDto,
+    @Req() request: Request,
+  ): Promise<SystemApprovalPolicyResponse> {
+    return this.adminService.upsertSystemApprovalPolicy(
+      actor,
+      actionKey,
+      dto,
+      request,
+    );
+  }
+
+  @Post('approvals/:approvalId/approve')
+  @RequirePermissions(Permission.SYSTEM_MANAGE)
+  @ApiOperation({ summary: 'Approve a high-risk action request' })
+  @ApiResponse({ status: 200, description: 'Approval request approved' })
+  async approveAction(
+    @CurrentUser() actor: JwtPayload,
+    @Param('approvalId') approvalId: string,
+    @Body() dto: ApproveAdminActionDto,
+    @Req() request: Request,
+  ): Promise<AdminApprovalResponse> {
+    return this.adminService.approveHighRiskAction(
+      actor,
+      approvalId,
+      dto.note,
+      request,
+    );
+  }
+
+  @Post('approvals/:approvalId/reject')
+  @RequirePermissions(Permission.SYSTEM_MANAGE)
+  @ApiOperation({ summary: 'Reject a high-risk action request' })
+  @ApiResponse({ status: 200, description: 'Approval request rejected' })
+  async rejectAction(
+    @CurrentUser() actor: JwtPayload,
+    @Param('approvalId') approvalId: string,
+    @Body() dto: RejectAdminActionDto,
+    @Req() request: Request,
+  ): Promise<AdminApprovalResponse> {
+    return this.adminService.rejectHighRiskAction(
+      actor,
+      approvalId,
+      dto.reason,
+      request,
+    );
+  }
+
+  @Get('system-users/:userId/access-policy')
+  @RequirePermissions(Permission.SYSTEM_MANAGE)
+  @ApiOperation({ summary: 'Get IP risk policy for a system user' })
+  @ApiResponse({ status: 200, description: 'Access policy returned' })
+  async getSystemUserAccessPolicy(
+    @CurrentUser() actor: JwtPayload,
+    @Param('userId') userId: string,
+  ): Promise<SystemUserAccessPolicyResponse> {
+    return this.adminService.getSystemUserAccessPolicy(actor, userId);
+  }
+
+  @Patch('system-users/:userId/access-policy')
+  @RequirePermissions(Permission.SYSTEM_MANAGE)
+  @ApiOperation({ summary: 'Update IP risk policy for a system user' })
+  @ApiResponse({ status: 200, description: 'Access policy updated' })
+  async updateSystemUserAccessPolicy(
+    @CurrentUser() actor: JwtPayload,
+    @Param('userId') userId: string,
+    @Body() dto: UpdateSystemUserAccessPolicyDto,
+    @Req() request: Request,
+  ): Promise<SystemUserAccessPolicyResponse> {
+    return this.adminService.updateSystemUserAccessPolicy(
+      actor,
+      userId,
+      dto,
+      request,
+    );
   }
 }

@@ -27,6 +27,17 @@ export class RefreshTokenRepository extends BaseMongoRepository<RefreshTokenDocu
   }
 
   /**
+   * Find refresh token by document ID
+   * @param id Token document ID
+   * @returns Token document or null
+   */
+  async findById(
+    id: string | Types.ObjectId,
+  ): Promise<RefreshTokenDocument | null> {
+    return this.model.findById(id).exec();
+  }
+
+  /**
    * Find all refresh tokens for a user
    * @param userId User ID
    * @returns Array of token documents
@@ -55,6 +66,19 @@ export class RefreshTokenRepository extends BaseMongoRepository<RefreshTokenDocu
   }
 
   /**
+   * Count active (non-revoked, non-expired) refresh tokens for user
+   * @param userId User ID
+   * @returns Active sessions count
+   */
+  async countActiveByUserId(userId: string | Types.ObjectId): Promise<number> {
+    return this.model.countDocuments({
+      userId,
+      isRevoked: false,
+      expiresAt: { $gt: new Date() },
+    });
+  }
+
+  /**
    * Revoke a token by ID
    * @param id Token ID
    * @returns Updated token document or null
@@ -64,6 +88,21 @@ export class RefreshTokenRepository extends BaseMongoRepository<RefreshTokenDocu
   ): Promise<RefreshTokenDocument | null> {
     return this.model
       .findByIdAndUpdate(id, { isRevoked: true }, { new: true })
+      .exec();
+  }
+
+  /**
+   * Revoke a token by ID only if it belongs to a specific user
+   * @param id Token ID
+   * @param userId User ID
+   * @returns Updated token document or null
+   */
+  async revokeByIdForUser(
+    id: string | Types.ObjectId,
+    userId: string | Types.ObjectId,
+  ): Promise<RefreshTokenDocument | null> {
+    return this.model
+      .findOneAndUpdate({ _id: id, userId }, { isRevoked: true }, { new: true })
       .exec();
   }
 

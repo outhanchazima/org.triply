@@ -208,4 +208,122 @@ export class AuditLogRepository extends BaseMongoRepository<AuditLogDocument> {
       createdAt: { $gte: since },
     });
   }
+
+  /**
+   * Aggregate failed login attempts grouped by day.
+   */
+  async aggregateFailedLoginsByDay(
+    days = 30,
+  ): Promise<Array<{ date: string; count: number }>> {
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const result = await this.model
+      .aggregate([
+        {
+          $match: {
+            action: AuditAction.OTP_FAILED,
+            createdAt: { $gte: since },
+          },
+        },
+        {
+          $group: {
+            _id: {
+              $dateToString: { format: '%Y-%m-%d', date: '$createdAt' },
+            },
+            count: { $sum: 1 },
+          },
+        },
+        { $sort: { _id: 1 } },
+      ])
+      .exec();
+
+    return result.map((entry) => ({
+      date: String(entry._id),
+      count: Number(entry.count || 0),
+    }));
+  }
+
+  /**
+   * Aggregate suspicious security actions.
+   */
+  async aggregateSuspiciousActions(
+    days = 30,
+    limit = 50,
+  ): Promise<
+    Array<{
+      action: string;
+      count: number;
+      lastSeenAt: Date;
+    }>
+  > {
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const suspiciousActions = [
+      AuditAction.SUSPICIOUS_ACTIVITY,
+      AuditAction.PERMISSION_DENIED,
+      AuditAction.REFRESH_TOKEN_REUSE_DETECTED,
+      AuditAction.ACCOUNT_LOCKED,
+      AuditAction.OTP_FAILED,
+    ];
+
+    const result = await this.model
+      .aggregate([
+        {
+          $match: {
+            action: { $in: suspiciousActions },
+            createdAt: { $gte: since },
+          },
+        },
+        {
+          $group: {
+            _id: '$action',
+            count: { $sum: 1 },
+            lastSeenAt: { $max: '$createdAt' },
+          },
+        },
+        { $sort: { count: -1 } },
+        { $limit: Math.max(limit, 1) },
+      ])
+      .exec();
+
+    return result.map((entry) => ({
+      action: String(entry._id),
+      count: Number(entry.count || 0),
+      lastSeenAt: new Date(entry.lastSeenAt),
+    }));
+  }
+
+  /**
+   * Aggregate top denied permissions by count.
+   */
+  async aggregateTopPermissionDenials(
+    days = 30,
+    limit = 20,
+  ): Promise<Array<{ permission: string; count: number }>> {
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const result = await this.model
+      .aggregate([
+        {
+          $match: {
+            action: AuditAction.PERMISSION_DENIED,
+            createdAt: { $gte: since },
+            'metadata.permission': { $exists: true, $ne: null },
+          },
+        },
+        {
+          $group: {
+            _id: '$metadata.permission',
+            count: { $sum: 1 },
+          },
+        },
+        { $sort: { count: -1 } },
+        { $limit: Math.max(limit, 1) },
+      ])
+      .exec();
+
+    return result.map((entry) => ({
+      permission: String(entry._id),
+      count: Number(entry.count || 0),
+    }));
+  }
 }

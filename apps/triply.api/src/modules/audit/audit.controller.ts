@@ -13,6 +13,7 @@ import {
   RequirePermissions,
   AuditService,
 } from '@org.triply/shared';
+import { AuditAnalyticsQueryDto } from './dto/audit-analytics-query.dto';
 
 @ApiTags('Audit')
 @Controller('audit')
@@ -90,5 +91,57 @@ export class AuditController {
       page,
       limit,
     );
+  }
+
+  @Get('analytics/failed-logins')
+  @ApiOperation({ summary: 'Aggregate failed login attempts by day' })
+  @ApiResponse({ status: 200, description: 'Failed login trend returned' })
+  async getFailedLoginAnalytics(
+    @Query() query: AuditAnalyticsQueryDto,
+  ): Promise<{ days: number; points: Array<{ date: string; count: number }> }> {
+    const days = Math.max(Number(query.days || 30), 1);
+    const points = await this.auditService.getFailedLoginsByDay(days);
+
+    return { days, points };
+  }
+
+  @Get('analytics/suspicious-actions')
+  @ApiOperation({ summary: 'Aggregate suspicious actions' })
+  @ApiResponse({
+    status: 200,
+    description: 'Suspicious action summary returned',
+  })
+  async getSuspiciousActionsAnalytics(
+    @Query() query: AuditAnalyticsQueryDto,
+  ): Promise<{
+    days: number;
+    limit: number;
+    points: Array<{ action: string; count: number; lastSeenAt: Date }>;
+  }> {
+    const days = Math.max(Number(query.days || 30), 1);
+    const limit = Math.min(Math.max(Number(query.limit || 20), 1), 100);
+    const points = await this.auditService.getSuspiciousActions(days, limit);
+
+    return { days, limit, points };
+  }
+
+  @Get('analytics/top-permission-denials')
+  @ApiOperation({ summary: 'Aggregate top permission denial events' })
+  @ApiResponse({
+    status: 200,
+    description: 'Top permission denial summary returned',
+  })
+  async getTopPermissionDenials(
+    @Query() query: AuditAnalyticsQueryDto,
+  ): Promise<{
+    days: number;
+    limit: number;
+    points: Array<{ permission: string; count: number }>;
+  }> {
+    const days = Math.max(Number(query.days || 30), 1);
+    const limit = Math.min(Math.max(Number(query.limit || 20), 1), 100);
+    const points = await this.auditService.getTopPermissionDenials(days, limit);
+
+    return { days, limit, points };
   }
 }

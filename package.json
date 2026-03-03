@@ -60,6 +60,8 @@
     "g:service": "nx generate @nx/nest:service",
     "g:controller": "nx generate @nx/nest:controller",
     "g:resource": "nx generate @nx/nest:resource",
+    "seed:approval-policies": "ts-node --project scripts/tsconfig.seed.json scripts/seed-approval-policies.ts",
+    "seed:approval-policies:dry-run": "npm run seed:approval-policies -- --dry-run",
     "infisical:setup": "infisical login && infisical init",
     "infisical:run": "infisical run --env=dev nx serve triply.api",
     "infisical:dev": "infisical run --env=dev -- nx serve triply.api",

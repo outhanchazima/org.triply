@@ -6,6 +6,9 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { AuditAction } from '@org.triply/database';
+import type { Request } from 'express';
+import { AuditService } from '../../audit/services';
 import { JwtPayload } from '../../interfaces/jwt-payload.interface';
 
 export const PERMISSIONS_KEY = 'permissions';
@@ -29,9 +32,12 @@ export const RequirePermissions = (...permissions: string[]) => {
 
 @Injectable()
 export class PermissionsGuard implements CanActivate {
-  constructor(private readonly reflector: Reflector) {}
+  constructor(
+    private readonly reflector: Reflector,
+    private readonly auditService: AuditService,
+  ) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const requiredPermissions = this.reflector.getAllAndOverride<string[]>(
       PERMISSIONS_KEY,
       [context.getHandler(), context.getClass()],
@@ -41,7 +47,10 @@ export class PermissionsGuard implements CanActivate {
       return true;
     }
 
-    const { user } = context.switchToHttp().getRequest<{ user: JwtPayload }>();
+    const request = context
+      .switchToHttp()
+      .getRequest<{ user: JwtPayload; method: string; originalUrl: string }>();
+    const { user } = request;
 
     if (!user) {
       throw new ForbiddenException('Access denied. User not authenticated.');
@@ -53,6 +62,27 @@ export class PermissionsGuard implements CanActivate {
     );
 
     if (!hasAllPermissions) {
+      const missingPermissions = requiredPermissions.filter(
+        (permission) => !user.permissions.includes(permission),
+      );
+
+      await this.auditService.log(
+        {
+          action: AuditAction.PERMISSION_DENIED,
+          resource: 'Permission',
+          metadata: {
+            requiredPermissions,
+            missingPermissions,
+            permission: missingPermissions[0] || requiredPermissions[0] || null,
+            method: request.method,
+            path: request.originalUrl,
+          },
+          success: false,
+        },
+        user,
+        request as unknown as Request,
+      );
+
       throw new ForbiddenException(
         `Access denied. Required permissions: ${requiredPermissions.join(', ')}`,
       );

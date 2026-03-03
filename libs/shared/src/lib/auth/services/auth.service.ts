@@ -4,6 +4,7 @@ import {
   UnauthorizedException,
   BadRequestException,
   ForbiddenException,
+  NotFoundException,
   Logger,
   HttpException,
   HttpStatus,
@@ -35,6 +36,9 @@ import {
   SafeUserDto,
   MembershipInfoDto,
   AuthContextDto,
+  Permission,
+  SessionInfoDto,
+  SystemUserAccessPolicyRepository,
 } from '@org.triply/database';
 
 import { JwtPayload } from '../../interfaces/jwt-payload.interface';
@@ -71,6 +75,7 @@ export class AuthService {
     private readonly businessRepository: BusinessRepository,
     private readonly membershipRepository: BusinessMembershipRepository,
     private readonly refreshTokenRepository: RefreshTokenRepository,
+    private readonly systemUserAccessPolicyRepository: SystemUserAccessPolicyRepository,
     private readonly travellerProfileRepository: TravellerProfileRepository,
     private readonly systemUserProfileRepository: SystemUserProfileRepository,
     private readonly auditService: AuditService,
@@ -165,6 +170,13 @@ export class AuthService {
     }
 
     await this.ensureNotLocked(user, normalizedEmail, request);
+    await this.enforceSystemUserRiskPolicies(
+      user,
+      deviceInfo,
+      ipAddress,
+      request,
+      'otp',
+    );
 
     if (!this.isStoredOtpValid(user, otp, OtpPurpose.LOGIN)) {
       await this.handleOtpFailure(
@@ -205,6 +217,73 @@ export class AuthService {
     return {
       ...tokens,
       isNewUser,
+    };
+  }
+
+  /**
+   * Verify step-up OTP and issue tokens for existing users.
+   */
+  async verifyStepUpOtp(
+    email: string,
+    otp: string,
+    deviceInfo?: string,
+    ipAddress?: string,
+    request?: Request,
+  ): Promise<AuthResponseDto> {
+    const normalizedEmail = email.toLowerCase().trim();
+
+    const user = await this.userRepository.findByEmailWithOtp(normalizedEmail);
+    if (!user) {
+      throw new UnauthorizedException('Invalid step-up verification details');
+    }
+
+    await this.ensureNotLocked(user, normalizedEmail, request);
+    await this.enforceSystemUserRiskPolicies(
+      user,
+      deviceInfo,
+      ipAddress,
+      request,
+      'otp',
+    );
+
+    if (!this.isStoredOtpValid(user, otp, OtpPurpose.VERIFY_EMAIL)) {
+      await this.handleOtpFailure(
+        user,
+        normalizedEmail,
+        'Invalid step-up OTP',
+        request,
+      );
+    }
+
+    await this.userRepository.clearOtp(normalizedEmail);
+    await this.userRepository.recordLogin(normalizedEmail, ipAddress || '');
+
+    const freshUser = await this.userRepository.findById(user.id);
+    if (!freshUser) {
+      throw new UnauthorizedException('User not found after step-up');
+    }
+
+    const tokens = await this.buildAndIssueTokens(
+      freshUser,
+      null,
+      deviceInfo,
+      ipAddress,
+    );
+
+    await this.auditService.log(
+      {
+        action: AuditAction.LOGIN_OTP,
+        resource: 'User',
+        resourceId: user.id,
+        metadata: { stepUp: true },
+      },
+      undefined,
+      request,
+    );
+
+    return {
+      ...tokens,
+      isNewUser: false,
     };
   }
 
@@ -395,6 +474,14 @@ export class AuthService {
       throw new UnauthorizedException('Failed to create or find user');
     }
 
+    await this.enforceSystemUserRiskPolicies(
+      user,
+      deviceInfo,
+      ipAddress,
+      request,
+      'google',
+    );
+
     await this.userRepository.recordLogin(normalizedEmail, ipAddress || '');
 
     const tokens = await this.buildAndIssueTokens(
@@ -561,6 +648,119 @@ export class AuthService {
     );
 
     return { message: 'Logged out successfully' };
+  }
+
+  /**
+   * List active refresh-token sessions for current user or admin-targeted user.
+   */
+  async listSessions(
+    actor: JwtPayload,
+    targetUserId?: string,
+  ): Promise<{ userId: string; sessions: SessionInfoDto[] }> {
+    const managedUserId = this.resolveSessionTargetUserId(actor, targetUserId);
+
+    const user = await this.userRepository.findById(managedUserId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const sessions =
+      await this.refreshTokenRepository.findActiveByUserId(managedUserId);
+
+    return {
+      userId: managedUserId,
+      sessions: sessions
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+        .map((session) => ({
+          id: session.id,
+          deviceInfo: session.deviceInfo,
+          ipAddress: session.ipAddress,
+          createdAt: session.createdAt,
+          expiresAt: session.expiresAt,
+        })),
+    };
+  }
+
+  /**
+   * Revoke one active refresh-token session by ID.
+   */
+  async revokeSession(
+    actor: JwtPayload,
+    sessionId: string,
+    targetUserId?: string,
+    request?: Request,
+  ): Promise<{ message: string }> {
+    const managedUserId = this.resolveSessionTargetUserId(actor, targetUserId);
+
+    const session = await this.refreshTokenRepository.findById(sessionId);
+    if (!session || session.userId.toString() !== managedUserId) {
+      throw new NotFoundException('Session not found');
+    }
+
+    if (session.isRevoked || session.expiresAt < new Date()) {
+      return { message: 'Session already inactive' };
+    }
+
+    await this.refreshTokenRepository.revokeByIdForUser(
+      sessionId,
+      managedUserId,
+    );
+
+    await this.auditService.log(
+      {
+        action: AuditAction.LOGOUT,
+        resource: 'RefreshToken',
+        resourceId: sessionId,
+        metadata: {
+          managedUserId,
+          operation: 'single_session_revoke',
+        },
+      },
+      actor,
+      request,
+    );
+
+    return { message: 'Session revoked successfully' };
+  }
+
+  /**
+   * Revoke all active refresh-token sessions for current user or admin-targeted user.
+   */
+  async revokeAllSessions(
+    actor: JwtPayload,
+    targetUserId?: string,
+    request?: Request,
+  ): Promise<{ message: string; revokedCount: number }> {
+    const managedUserId = this.resolveSessionTargetUserId(actor, targetUserId);
+
+    const user = await this.userRepository.findById(managedUserId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const activeCount =
+      await this.refreshTokenRepository.countActiveByUserId(managedUserId);
+    await this.refreshTokenRepository.revokeAllForUser(managedUserId);
+
+    await this.auditService.log(
+      {
+        action: AuditAction.LOGOUT,
+        resource: 'RefreshToken',
+        resourceId: managedUserId,
+        metadata: {
+          managedUserId,
+          operation: 'revoke_all_sessions',
+          revokedCount: activeCount,
+        },
+      },
+      actor,
+      request,
+    );
+
+    return {
+      message: 'All sessions revoked successfully',
+      revokedCount: activeCount,
+    };
   }
 
   /**
@@ -1037,6 +1237,199 @@ export class AuthService {
 
     recent.push(now);
     this.otpSendHistoryByEmail.set(email, recent);
+  }
+
+  /**
+   * Enforce system-user IP/device risk policies.
+   */
+  private async enforceSystemUserRiskPolicies(
+    user: UserDocument,
+    deviceInfo?: string,
+    ipAddress?: string,
+    request?: Request,
+    provider: 'otp' | 'google' = 'otp',
+  ): Promise<void> {
+    if (!user.isSystemUser) {
+      return;
+    }
+
+    const policy = await this.systemUserAccessPolicyRepository.findByUserId(
+      user.id,
+    );
+    if (!policy) {
+      return;
+    }
+
+    const normalizedIp = ipAddress?.trim() || '';
+
+    if (normalizedIp && policy.deniedIps.includes(normalizedIp)) {
+      await this.auditService.log(
+        {
+          action: AuditAction.SUSPICIOUS_ACTIVITY,
+          resource: 'User',
+          resourceId: user.id,
+          metadata: {
+            reason: 'ip_denylist_match',
+            ipAddress: normalizedIp,
+          },
+          success: false,
+        },
+        undefined,
+        request,
+      );
+
+      if (policy.notifyOnRiskEvent) {
+        const appUrl = this.configService.get<string>(
+          'APP_URL',
+          'http://localhost:4200',
+        );
+
+        await this.mailService.sendSecurityAlert(user.email, {
+          displayName: user.displayName,
+          alertType: 'Denied login attempt from blocked IP',
+          ipAddress: normalizedIp,
+          timestamp: new Date(),
+          actionUrl: `${appUrl.replace(/\/$/, '')}/security`,
+        });
+      }
+
+      throw new ForbiddenException('Access blocked by system IP policy');
+    }
+
+    if (
+      normalizedIp &&
+      policy.allowedIps.length > 0 &&
+      !policy.allowedIps.includes(normalizedIp)
+    ) {
+      await this.auditService.log(
+        {
+          action: AuditAction.SUSPICIOUS_ACTIVITY,
+          resource: 'User',
+          resourceId: user.id,
+          metadata: {
+            reason: 'ip_not_in_allowlist',
+            ipAddress: normalizedIp,
+          },
+          success: false,
+        },
+        undefined,
+        request,
+      );
+
+      throw new ForbiddenException(
+        'IP address is not permitted for this account',
+      );
+    }
+
+    const activeSessions = await this.refreshTokenRepository.findActiveByUserId(
+      user.id,
+    );
+    const knownIps = new Set(
+      activeSessions
+        .map((session) => session.ipAddress || '')
+        .filter((value) => value.length > 0),
+    );
+    const knownDevices = new Set(
+      activeSessions
+        .map((session) => session.deviceInfo || '')
+        .filter((value) => value.length > 0),
+    );
+
+    const isUnknownIp =
+      normalizedIp.length > 0 &&
+      knownIps.size > 0 &&
+      !knownIps.has(normalizedIp);
+    const normalizedDevice = deviceInfo?.trim() || '';
+    const isUnknownDevice =
+      normalizedDevice.length > 0 &&
+      knownDevices.size > 0 &&
+      !knownDevices.has(normalizedDevice);
+
+    if (!isUnknownIp && !isUnknownDevice) {
+      return;
+    }
+
+    await this.auditService.log(
+      {
+        action: AuditAction.SUSPICIOUS_ACTIVITY,
+        resource: 'User',
+        resourceId: user.id,
+        metadata: {
+          reason: 'unusual_access_pattern',
+          provider,
+          ipAddress: normalizedIp || null,
+          deviceInfo: normalizedDevice || null,
+          isUnknownIp,
+          isUnknownDevice,
+        },
+      },
+      undefined,
+      request,
+    );
+
+    if (policy.notifyOnRiskEvent) {
+      const appUrl = this.configService.get<string>(
+        'APP_URL',
+        'http://localhost:4200',
+      );
+
+      await this.mailService.sendSecurityAlert(user.email, {
+        displayName: user.displayName,
+        alertType: 'Unusual system-user login pattern detected',
+        ipAddress: normalizedIp || 'Unknown',
+        timestamp: new Date(),
+        actionUrl: `${appUrl.replace(/\/$/, '')}/security`,
+      });
+    }
+
+    const requiresStepUp =
+      provider === 'google' &&
+      ((policy.requireStepUpOnUnknownIp && isUnknownIp) ||
+        (policy.requireStepUpOnUnknownDevice && isUnknownDevice));
+
+    if (!requiresStepUp) {
+      return;
+    }
+
+    const otpResult = await this.sendOtp(
+      user.email,
+      OtpPurpose.VERIFY_EMAIL,
+      request,
+    );
+
+    throw new HttpException(
+      {
+        message: 'Step-up verification required',
+        code: 'STEP_UP_REQUIRED',
+        email: user.email,
+        expiresIn: otpResult.expiresIn,
+      },
+      HttpStatus.PRECONDITION_REQUIRED,
+    );
+  }
+
+  /**
+   * Resolve target user for session management operations.
+   */
+  private resolveSessionTargetUserId(
+    actor: JwtPayload,
+    targetUserId?: string,
+  ): string {
+    if (!targetUserId || targetUserId === actor.sub) {
+      return actor.sub;
+    }
+
+    const canManageOtherUsers =
+      actor.permissions.includes(Permission.USER_UPDATE) ||
+      actor.permissions.includes(Permission.USER_DELETE);
+
+    if (!canManageOtherUsers) {
+      throw new ForbiddenException(
+        'Insufficient permissions to manage other user sessions',
+      );
+    }
+
+    return targetUserId;
   }
 
   /**

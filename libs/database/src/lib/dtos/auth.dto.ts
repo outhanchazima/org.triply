@@ -93,6 +93,57 @@ export class RefreshTokenDto {
 }
 
 /**
+ * DTO for querying managed sessions.
+ */
+export class SessionsQueryDto {
+  @ApiPropertyOptional({
+    description:
+      'Target user ID for admin-managed session operations (optional)',
+    example: '60f7c0b5e1d2c4567890abcf',
+  })
+  @IsOptional()
+  @IsMongoId()
+  userId?: string;
+}
+
+/**
+ * Session/device info DTO.
+ */
+export class SessionInfoDto {
+  @ApiProperty({
+    description: 'Session identifier',
+    example: '60f7c0b5e1d2c4567890abcf',
+  })
+  id!: string;
+
+  @ApiPropertyOptional({
+    description: 'Device descriptor associated with refresh token',
+    example: 'MacBook Pro - Chrome 123',
+    nullable: true,
+  })
+  deviceInfo!: string | null;
+
+  @ApiPropertyOptional({
+    description: 'IP address used when session was issued',
+    example: '196.201.214.10',
+    nullable: true,
+  })
+  ipAddress!: string | null;
+
+  @ApiProperty({
+    description: 'Session creation timestamp',
+    example: '2026-03-03T09:15:00.000Z',
+  })
+  createdAt!: Date;
+
+  @ApiProperty({
+    description: 'Session expiration timestamp',
+    example: '2026-03-10T09:15:00.000Z',
+  })
+  expiresAt!: Date;
+}
+
+/**
  * DTO for Google OAuth callback (internal use)
  */
 export class GoogleCallbackDto {

@@ -98,6 +98,10 @@ import { BusinessRepository } from '../repositories/business.repository';
 import { BusinessMembershipRepository } from '../repositories/business-membership.repository';
 import { AuditLogRepository } from '../repositories/audit-log.repository';
 import { FileAssetRepository } from '../repositories/file-asset.repository';
+import { BusinessRoleTemplateRepository } from '../repositories/business-role-template.repository';
+import { AdminApprovalRepository } from '../repositories/admin-approval.repository';
+import { SystemUserAccessPolicyRepository } from '../repositories/system-user-access-policy.repository';
+import { ApprovalPolicyRepository } from '../repositories/approval-policy.repository';
 
 /**
  * Authentication Database Module
@@ -140,6 +144,10 @@ import { FileAssetRepository } from '../repositories/file-asset.repository';
     BusinessMembershipRepository,
     AuditLogRepository,
     FileAssetRepository,
+    BusinessRoleTemplateRepository,
+    AdminApprovalRepository,
+    SystemUserAccessPolicyRepository,
+    ApprovalPolicyRepository,
   ],
   exports: [
     UserRepository,
@@ -150,6 +158,10 @@ import { FileAssetRepository } from '../repositories/file-asset.repository';
     BusinessMembershipRepository,
     AuditLogRepository,
     FileAssetRepository,
+    BusinessRoleTemplateRepository,
+    AdminApprovalRepository,
+    SystemUserAccessPolicyRepository,
+    ApprovalPolicyRepository,
   ],
 })
 export class AuthDatabaseModule {}

@@ -111,6 +111,35 @@ export class AuditService {
   }
 
   /**
+   * Get failed login aggregates by day.
+   */
+  async getFailedLoginsByDay(
+    days = 30,
+  ): Promise<Array<{ date: string; count: number }>> {
+    return this.auditLogRepository.aggregateFailedLoginsByDay(days);
+  }
+
+  /**
+   * Get suspicious action aggregates.
+   */
+  async getSuspiciousActions(
+    days = 30,
+    limit = 50,
+  ): Promise<Array<{ action: string; count: number; lastSeenAt: Date }>> {
+    return this.auditLogRepository.aggregateSuspiciousActions(days, limit);
+  }
+
+  /**
+   * Get top permission-denial aggregates.
+   */
+  async getTopPermissionDenials(
+    days = 30,
+    limit = 20,
+  ): Promise<Array<{ permission: string; count: number }>> {
+    return this.auditLogRepository.aggregateTopPermissionDenials(days, limit);
+  }
+
+  /**
    * Sanitize data for audit logging - remove sensitive fields
    */
   private sanitizeForAudit(
